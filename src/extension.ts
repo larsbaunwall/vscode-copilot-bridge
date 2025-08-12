@@ -209,7 +209,7 @@ function toText(content: any): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) return content.map(toText).join('\n');
   if (content && typeof content === 'object' && typeof content.text === 'string') return content.text;
-  try { return JSON.stringify(content); } catch { return String(content); }
+  try { return JSON.stringify(content); } catch (error) { return String(content); }
 }
 
 function normalizeMessagesLM(messages: any[], histWindow: number): any[] {
