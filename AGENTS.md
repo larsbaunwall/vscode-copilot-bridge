@@ -1,410 +1,336 @@
-Goals
-	1.	Bridge Copilot Chat to an OpenAI‑style API so other local tools can “speak OpenAI” and get Copilot responses.
-	2.	Provide optional tools (search/read/patch/format) over a JSON‑RPC IPC to enable plan→act loops from external orchestrators.
-	3.	Run only inside a user’s running VS Code Desktop session—no server/daemon install, no VS Code Server dependency.
-	4.	Respect safety & UX: local‑only networking by default, explicit enable/disable, minimal footprint.
+# Inference‑Only Copilot Bridge (VS Code Desktop)
 
-Non‑goals
-	•	No direct calls to private Copilot backends.
-	•	No multi‑tenant proxying or remote exposure.
-	•	No attempt to fully emulate OpenAI “tools/function calling” (unsupported by Copilot provider).
+## Scope & Goals
 
-⸻
+Expose a **local, OpenAI‑compatible chat endpoint** inside a **running VS Code Desktop** session that forwards requests to **GitHub Copilot Chat** via the **VS Code Chat provider**. No workspace tools (no search/edit), no VS Code Server.
 
-High‑level architecture
+- Endpoints:
+  - `POST /v1/chat/completions` (supports streaming via SSE)
+  - `GET /v1/models` (synthetic listing)
+  - `GET /healthz` (status)
+- Local only (`127.0.0.1`), single user, opt‑in via VS Code settings/command.
+- Minimal state: one Copilot session per request; no history persisted by the bridge.
 
+**Non‑goals:** multi‑tenant proxying, private endpoint scraping, file I/O tools, function/tool calling emulation.
+
+---
+
+## Architecture (Desktop‑only, in‑process)
+
+```
 VS Code Desktop (running)
-┌────────────────────────────────────────────────────────────────┐
-│  Bridge Extension (Node in Extension Host)                     │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ OpenAI Facade (HTTP, 127.0.0.1:PORT)                     │  │
-│  │  - /v1/chat/completions  (SSE)                           │  │
-│  │  - /v1/models                                            │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ JSON-RPC IPC (WebSocket, 127.0.0.1:PORT2)                │  │
-│  │  - mcp.fs.read / list                                    │  │
-│  │  - mcp.search.code                                       │  │
-│  │  - mcp.edit.applyPatch / format / organizeImports        │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Copilot Chat Pipe                                       │  │
-│  │  vscode.chat.requestChatAccess('copilot')               │  │
-│  │  access.startSession().sendRequest({ prompt, ... })     │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Workspace APIs                                           │  │
-│  │  findTextInFiles / findFiles / WorkspaceEdit / tasks     │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Bridge Extension (TypeScript, Extension Host)                │
+│  - HTTP server on 127.0.0.1:<port>                           │
+│  - POST /v1/chat/completions  → Copilot Chat provider        │
+│  - GET  /v1/models (synthetic)                               │
+│  - GET  /healthz                                             │
+│ Copilot pipe:                                                │
+│  vscode.chat.requestChatAccess('copilot')                    │
+│    → access.startSession().sendRequest({ prompt, ... })      │
+└──────────────────────────────────────────────────────────────┘
+```
 
+### Data flow
+Client (OpenAI API shape) → Bridge HTTP → normalize messages → `requestChatAccess('copilot')` → `startSession().sendRequest` → stream chunks → SSE to client.
 
-⸻
+---
 
-Data flows
+## API Contract (subset, OpenAI‑compatible)
 
-Chat (OpenAI facade)
-	1.	Client → POST /v1/chat/completions (OpenAI‑shape, SSE requested).
-	2.	Extension concatenates recent messages → prompt.
-	3.	requestChatAccess('copilot') → startSession() → sendRequest({ prompt }).
-	4.	Stream Copilot chunks → map to OpenAI SSE (data: {object:"chat.completion.chunk", ...}).
-	5.	On end → send data: [DONE].
+### POST `/v1/chat/completions`
+**Accepted fields**
+- `model`: string (ignored internally, echoed back as synthetic id).
+- `messages`: array of `{role, content}`; roles: `system`, `user`, `assistant`.
+- `stream`: boolean (default `true`). If `false`, return a single JSON completion.
 
-Tools (optional, JSON‑RPC)
-	1.	Client → mcp.search.code / mcp.fs.read / mcp.edit.applyPatch.
-	2.	Extension executes via VS Code APIs (read/find/apply/format).
-	3.	Returns structured results/errors.
+**Ignored fields**  
+`tools`, `function_call/tool_choice`, `temperature`, `top_p`, `logprobs`, `seed`, penalties, `response_format`, `stop`, `n`.
 
-⸻
+**Prompt normalization**
+- Keep the last **system** message and the last **N** user/assistant turns (configurable, default 3) to bound prompt size.
+- Render into a single text prompt:
 
-API contracts
-
-OpenAI‑style /v1/chat/completions (subset)
-
-Request
-
-{
-  "model": "gpt-4o-copilot",
-  "stream": true,
-  "messages": [
-    {"role":"system","content":"You are a cautious coding assistant."},
-    {"role":"user","content":"Refactor retry logic in PaymentClient."}
-  ]
-}
-
-SSE Response
-
-HTTP 200
-Content-Type: text/event-stream
-
-data: {"id":"cmp_...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Plan: "}}]}
-
-data: {"id":"cmp_...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Update backoff…"}}]}
-...
-data: [DONE]
-
-Notes
-	•	Ignore unsupported fields (tools/function_call/logprobs/seed).
-	•	model is passthrough (synthetic id), Copilot selects internals.
-	•	Enforce small history window to keep prompts bounded.
-
-JSON‑RPC (WebSocket), examples
-
-Request
-
-{"jsonrpc":"2.0","id":"1","method":"mcp.search.code","params":{"query":"class PaymentClient","glob":"src/**/*.ts","maxResults":200}}
-
-Result
-
-{"jsonrpc":"2.0","id":"1","result":{"hits":[{"file":"src/payment/Client.ts","line":12,"snippet":"class PaymentClient { ... }"}]}}
-
-Edit apply
-
-{"jsonrpc":"2.0","id":"2","method":"mcp.edit.applyPatch","params":{"unifiedDiff":"--- a/src/.."}}
-
-
-⸻
-
-Extension design
-
-package.json (key points)
-	•	"activationEvents": ["onStartupFinished"] or a command palette toggle.
-	•	"contributes.commands":
-	•	bridge.enable, bridge.disable (start/stop servers)
-	•	bridge.status (port info, copilot availability)
-	•	"contributes.configuration": bridge.openai.port, bridge.rpc.port, bridge.bindAddress (default 127.0.0.1), bridge.readOnly (default true).
-
-Lifecycle
-	•	On activate:
-	•	Check user setting bridge.enabled.
-	•	Verify Copilot availability (requestChatAccess('copilot')), store a lazy accessor.
-	•	Start OpenAI facade server (HTTP) and RPC server (WS) with localhost binding.
-	•	Surface a status bar item: “Bridge: ON (127.0.0.1:PORT)”.
-	•	On deactivate or bridge.disable:
-	•	Close servers, dispose listeners.
-
-Copilot Chat Pipe
-	•	Keep no long‑lived chat session—create per request:
-
-const access = await vscode.chat.requestChatAccess('copilot');
-const session = await access.startSession();
-const stream = await session.sendRequest({ prompt, attachments: [] });
-
-
-	•	Subscribe to streaming events and forward to SSE.
-
-OpenAI Facade (HTTP, inside extension)
-	•	Implement with http or express (simple router).
-	•	Endpoints:
-	•	POST /v1/chat/completions → SSE
-	•	GET /v1/models → synthetic listing
-	•	GET /healthz → { ok, copilot: "ok|unavailable" }
-	•	Message normalization:
-	•	Concatenate messages into a single prompt:
-	•	Keep latest system and last N user/assistant turns (N configurable, default 3).
-	•	Format as:
-
+```
 [SYSTEM]
-...
+<system text>
+
 [DIALOG]
 user: ...
 assistant: ...
 user: ...
+```
 
+**Streaming response (SSE)**
+- For each Copilot content chunk:
 
-	•	SSE mapping: each Copilot chunk → one OpenAI delta with content text; close with [DONE].
+```
+data: {"id":"cmp_<uuid>","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"<chunk>"}}]}
+```
 
-JSON‑RPC Tool Bus (WebSocket)
-	•	Methods (prefix mcp.):
-	•	fs.read({path}) -> {content, sha256}
-	•	fs.list({glob,limit}) -> {files[]}
-	•	search.code({query,glob,maxResults}) -> {hits[]} using findTextInFiles
-	•	symbols.list({path}) -> {symbols[]}
-	•	edit.applyPatch({unifiedDiff,verify?true}) -> {ok, conflicts[]}
-	•	format.apply({path}) -> {ok}
-	•	imports.organize({path}) -> {ok}
-	•	(optional) task.run({name}), shell.run({cmd}) (guarded)
-	•	Edit safety:
-	•	Default read‑only; require explicit setting bridge.readOnly=false or a consent prompt to enable writes.
-	•	Maintain preimage verification: compute hashes for target ranges before applying WorkspaceEdit.
-	•	Always save file after apply; optionally run format and organizeImports.
+- Terminate with:
 
-Policy controls
-	•	.agent-policy.yaml in workspace root:
+```
+data: [DONE]
+```
 
-writes:
-  allow: ["src/**/*.ts","test/**/*.ts"]
-  deny:  ["**/node_modules/**","**/dist/**"]
-shell:
-  allow: ["npm test","dotnet test"]
+**Non‑streaming response**
 
-
-	•	Reject edit.applyPatch and shell.run if policy denies.
-
-Security defaults
-	•	Bind servers to 127.0.0.1 only.
-	•	Random ephemeral ports on first run; store in globalState.
-	•	Optional bearer token for the OpenAI facade (bridge.token); otherwise restrict to loopback.
-	•	No persistence of Copilot tokens; VS Code manages auth.
-
-⸻
-
-Implementation notes (guidance for the AI agent)
-
-1) Create extension skeleton
-	•	Use yo code (TypeScript).
-	•	Add deps: ws (WebSocket), optionally express, yaml.
-	•	Wire commands bridge.enable/disable/status.
-
-2) Copilot availability check
-
-let chatAccess: vscode.ChatAccess | undefined;
-async function ensureCopilotAccess() {
-  try { chatAccess = await vscode.chat.requestChatAccess('copilot'); }
-  catch { chatAccess = undefined; }
-  return !!chatAccess;
+```json
+{
+  "id": "cmpl_<uuid>",
+  "object": "chat.completion",
+  "choices": [
+    { "index": 0, "message": { "role": "assistant", "content": "<full text>" }, "finish_reason": "stop" }
+  ]
 }
+```
 
-3) OpenAI facade server (SSE)
-	•	Start HTTP server on 127.0.0.1:<port>.
-	•	For /v1/chat/completions:
-	•	Validate messages, stream === true; if not streaming, still return a single chunk then [DONE].
-	•	Build prompt string.
-	•	const session = await chatAccess!.startSession(); const stream = await session.sendRequest({ prompt }).
-	•	Map stream.onDidProduceContent → res.write("data: <chunk>\n\n") with OpenAI envelope.
-	•	On end/error → res.write("data: [DONE]\n\n"); res.end();.
+### GET `/v1/models`
 
-4) JSON‑RPC WS server
-	•	Start ws.Server({ host:"127.0.0.1", port }).
-	•	Envelope:
-	•	Validate jsonrpc, id, method.
-	•	Dispatch to handlers with params.
-	•	Handlers:
-	•	search.code: call vscode.workspace.findTextInFiles with include pattern; for each match, collect file path, line, short snippet (e.g., ±3 lines).
-	•	edit.applyPatch: parse unified diff → WorkspaceEdit:
-	•	Open doc, compute line ranges, verify preimage (optional hash in diff metadata), apply replacements, save.
-	•	After apply: vscode.commands.executeCommand('editor.action.formatDocument') and organize imports (language‑specific commands).
-	•	Normalize paths with vscode.Uri.file.
+```json
+{
+  "data": [
+    { "id": "gpt-4o-copilot", "object": "model", "owned_by": "vscode-bridge" }
+  ]
+}
+```
 
-5) Diff parsing & preimage checks
-	•	Import a small unified diff parser or implement:
-	•	Parse files as --- a/… / +++ b/…, hunks @@ -l,s +l,s @@.
-	•	For each hunk, compute target ranges and replacement text.
-	•	Preimage:
-	•	Option A: lightweight—compare expected lines in hunk with current doc slice.
-	•	Option B: embed span hashes in a custom header in the diff; verify before apply.
+### GET `/healthz`
 
-6) UX glue
-	•	Status bar item shows: “Bridge: ON · Chat: OK/Unavailable”.
-	•	Output channel “Copilot Bridge” for logs and port info.
-	•	Command bridge.status dumps:
-	•	Copilot avail
-	•	OpenAI endpoint URL
-	•	RPC endpoint URL
-	•	Policy: read‑only/writable
+```json
+{ "ok": true, "copilot": "ok", "version": "<vscode.version>" }
+```
 
-7) Error handling
-	•	Map Copilot errors to 5xx in OpenAI facade with JSON payload:
+### Error envelope (OpenAI‑style)
 
-{"error":{"message":"Copilot unavailable","type":"server_error","code":"copilot_unavailable"}}
+```json
+{ "error": { "message": "Copilot unavailable", "type": "server_error", "code": "copilot_unavailable" } }
+```
 
+---
 
-	•	For JSON‑RPC: return {"error":{"code":<int>,"message":"…"}}.
+## Extension Design
 
-8) Testing strategy
-	•	Unit: diff parser, search aggregations.
-	•	Integration:
-	•	Start VS Code, enable bridge, curl -N http://127.0.0.1:<port>/v1/chat/completions with a trivial prompt → streamed chunks.
-	•	JSON‑RPC: create a sample workspace, run search.code, assert hits; run edit.applyPatch with a known diff, assert file content and formatting.
+### `package.json` (relevant)
+- `activationEvents`: `onStartupFinished` (and commands).
+- `contributes.commands`: `bridge.enable`, `bridge.disable`, `bridge.status`.
+- `contributes.configuration` (under `bridge.*`):
+  - `enabled` (bool; default `false`)
+  - `host` (string; default `"127.0.0.1"`)
+  - `port` (int; default `0` = random ephemeral)
+  - `token` (string; optional bearer; empty means no auth, still loopback only)
+  - `historyWindow` (int; default `3`)
 
-⸻
+### Lifecycle
+- On activate:
+  1. Check `bridge.enabled`; if false, return.
+  2. Attempt `vscode.chat.requestChatAccess('copilot')`; cache access if granted.
+  3. Start HTTP server bound to loopback.
+  4. Status bar item: `Copilot Bridge: OK/Unavailable @ <host>:<port>`.
+- On deactivate/disable: close server, dispose listeners.
 
-Example stubs
+### Copilot Hook
 
-extension.ts (skeleton)
+```ts
+const access = await vscode.chat.requestChatAccess('copilot');   // per enable or per request
+const session = await access.startSession();
+const stream  = await session.sendRequest({ prompt, attachments: [] });
+// stream.onDidProduceContent(text => ...)
+// stream.onDidEnd(() => ...)
+```
 
+---
+
+## Implementation Notes
+- **HTTP server:** Node `http` or a tiny `express` router. Keep it minimal to reduce dependencies.
+- **Auth:** optional `Authorization: Bearer <token>`; recommended for local automation. Reject mismatches with 401.
+- **Backpressure:** serialize requests or cap concurrency (configurable). If Copilot throttles, return 429 with `Retry-After`.
+- **Message normalization:**
+  - Coerce content variants (`string`, arrays, objects with `text`) into plain strings.
+  - Join multi‑part content with `\n`.
+- **Streaming:**
+  - Set headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`.
+  - Flush after each chunk; handle client disconnect by disposing stream subscriptions.
+- **Non‑stream:** buffer chunks; return a single completion object.
+- **Errors:** `503` when Copilot access unavailable; `400` for invalid payloads; `500` for unexpected failures.
+- **Logging:** VS Code Output channel: start/stop, port, errors (no prompt bodies unless user enables verbose logging).
+- **UX:** `bridge.status` shows availability, bound address/port, and whether a token is required; status bar indicator toggles on availability.
+
+---
+
+## Security & Compliance
+- Local only: default bind to `127.0.0.1`; no remote exposure.
+- Single user: relies on the user’s authenticated VS Code Copilot session; bridge does not handle tokens.
+- No scraping/private endpoints: all calls go through the VS Code Chat provider.
+- No multi‑tenant/proxying: do not expose to others; treat as a personal developer convenience.
+
+---
+
+## Testing Plan
+1. **Health**
+   ```bash
+   curl http://127.0.0.1:<port>/healthz
+   ```
+   Expect `{ ok: true, copilot: "ok" }` when signed in.
+
+2. **Streaming completion**
+   ```bash
+   curl -N -H "Content-Type: application/json" \
+     -d '{"model":"gpt-4o-copilot","stream":true,"messages":[{"role":"user","content":"hello"}]}' \
+     http://127.0.0.1:<port>/v1/chat/completions
+   ```
+   Expect multiple `data:` chunks and `[DONE]`.
+
+3. **Non‑stream** (`"stream": false`) → single JSON completion.
+
+4. **Bearer** (when configured): missing/incorrect token → `401`.
+
+5. **Unavailable**: sign out of Copilot → `/healthz` shows `unavailable`; POST returns `503`.
+
+6. **Concurrency/throttle**: fire two requests; verify cap or serialized handling.
+
+---
+
+## Minimal Code Skeleton
+
+### `src/extension.ts`
+
+```ts
 import * as vscode from 'vscode';
-import { createHttpFacade } from './http/openai';
-import { createRpcServer } from './rpc/server';
+import * as http from 'http';
 
-let httpClose: (() => Promise<void>) | undefined;
-let rpcClose: (() => Promise<void>) | undefined;
-let chatAccess: vscode.ChatAccess | undefined;
+let server: http.Server | undefined;
+let access: vscode.ChatAccess | undefined;
 
 export async function activate(ctx: vscode.ExtensionContext) {
-  const ok = await ensureCopilot();
-  const { httpServer, close: closeHttp } = await createHttpFacade(() => chatAccess);
-  const { server: rpcServer, close: closeRpc } = await createRpcServer(ctx);
+  const cfg = vscode.workspace.getConfiguration('bridge');
+  if (!cfg.get<boolean>('enabled')) return;
 
-  httpClose = closeHttp; rpcClose = closeRpc;
+  try { access = await vscode.chat.requestChatAccess('copilot'); }
+  catch { access = undefined; }
 
-  vscode.window.setStatusBarMessage(`Bridge: ON · Chat: ${ok ? 'OK' : 'Unavailable'}`);
+  const host = cfg.get<string>('host') ?? '127.0.0.1';
+  const portCfg = cfg.get<number>('port') ?? 0;
+  const token = (cfg.get<string>('token') ?? '').trim();
+  const hist = cfg.get<number>('historyWindow') ?? 3;
 
-  ctx.subscriptions.push(
-    vscode.commands.registerCommand('bridge.status', async () => {
-      const msg = `Chat: ${ok}\nHTTP: ${httpServer.address()}\nRPC: ${rpcServer.address()}`;
-      vscode.window.showInformationMessage(msg);
-    }),
-    { dispose: async () => { await Promise.all([httpClose?.(), rpcClose?.()]); } }
-  );
-
-  async function ensureCopilot() {
-    try { chatAccess = await vscode.chat.requestChatAccess('copilot'); return true; }
-    catch { chatAccess = undefined; return false; }
-  }
-}
-
-http/openai.ts (key pieces)
-
-import * as http from 'http';
-import * as vscode from 'vscode';
-
-export function createHttpFacade(getAccess: () => vscode.ChatAccess | undefined) {
-  const port = pickPort();
-  const server = http.createServer(async (req, res) => {
-    if (req.method === 'POST' && req.url?.startsWith('/v1/chat/completions')) {
-      const access = getAccess();
-      if (!access) return sendError(res, 503, 'Copilot unavailable');
-      const body = await readJson(req);
-      const prompt = normalizeMessages(body.messages);
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive'
-      });
-      const session = await access.startSession();
-      const stream = await session.sendRequest({ prompt, attachments: [] });
-      const id = `cmp_${Math.random().toString(36).slice(2)}`;
-      const send = (text: string) => {
-        res.write(`data: ${JSON.stringify({
-          id, object:'chat.completion.chunk',
-          choices:[{ index:0, delta:{ content:text } }]
-        })}\n\n`);
-      };
-      const d1 = stream.onDidProduceContent(c => send(c));
-      const d2 = stream.onDidEnd(() => { res.write(`data: [DONE]\n\n`); res.end(); d1.dispose(); d2.dispose(); });
-      req.on('close', () => { d1.dispose(); d2.dispose(); });
-      return;
-    }
-    if (req.method === 'GET' && req.url === '/v1/models') {
-      res.writeHead(200, {'Content-Type':'application/json'});
-      res.end(JSON.stringify({ data:[{ id:'gpt-4o-copilot', object:'model', owned_by:'vscode-bridge' }] }));
-      return;
-    }
-    res.writeHead(404).end();
-  });
-  server.listen(port, '127.0.0.1');
-  return { httpServer: server, close: async () => new Promise<void>(r => server.close(() => r())) };
-}
-
-rpc/server.ts (skeleton)
-
-import WebSocket, { WebSocketServer } from 'ws';
-import * as vscode from 'vscode';
-import { applyUnifiedDiff } from '../utils/diff';
-
-export function createRpcServer(ctx: vscode.ExtensionContext) {
-  const port = pickPort();
-  const wss = new WebSocketServer({ host:'127.0.0.1', port });
-  wss.on('connection', ws => {
-    ws.on('message', async (raw) => {
-      try {
-        const { id, method, params } = JSON.parse(raw.toString());
-        if (method === 'mcp.search.code') {
-          const hits: any[] = [];
-          await vscode.workspace.findTextInFiles({ pattern: params.query },
-            { include: new vscode.RelativePattern(vscode.workspace.workspaceFolders![0], params.glob ?? '**/*'),
-              maxResults: params.maxResults ?? 200 },
-            r => hits.push({ file:r.uri.fsPath, line:r.ranges[0].start.line }));
-          ws.send(JSON.stringify({ jsonrpc:'2.0', id, result:{ hits } }));
-          return;
-        }
-        if (method === 'mcp.edit.applyPatch') {
-          const ok = await applyUnifiedDiff(params.unifiedDiff);
-          ws.send(JSON.stringify({ jsonrpc:'2.0', id, result:{ ok } }));
-          return;
-        }
-        ws.send(JSON.stringify({ jsonrpc:'2.0', id, error:{ code:-32601, message:'Method not found' }}));
-      } catch (e:any) {
-        ws.send(JSON.stringify({ jsonrpc:'2.0', id:null, error:{ code:-32603, message:e?.message ?? 'Internal error' }}));
+  server = http.createServer(async (req, res) => {
+    try {
+      if (token && req.headers.authorization !== `Bearer ${token}`) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error:{ message:'unauthorized' } }));
+        return;
       }
-    });
+      if (req.method === 'GET' && req.url === '/healthz') {
+        res.writeHead(200, { 'Content-Type':'application/json' });
+        res.end(JSON.stringify({ ok: !!access, copilot: access ? 'ok':'unavailable', version: vscode.version }));
+        return;
+      }
+      if (req.method === 'GET' && req.url === '/v1/models') {
+        res.writeHead(200, { 'Content-Type':'application/json' });
+        res.end(JSON.stringify({ data:[{ id:'gpt-4o-copilot', object:'model', owned_by:'vscode-bridge' }] }));
+        return;
+      }
+      if (req.method === 'POST' && req.url?.startsWith('/v1/chat/completions')) {
+        if (!access) {
+          res.writeHead(503, { 'Content-Type':'application/json' });
+          res.end(JSON.stringify({ error:{ message:'Copilot unavailable', type:'server_error', code:'copilot_unavailable' } }));
+          return;
+        }
+        const body = await readJson(req);
+        const prompt = normalizeMessages(body?.messages ?? [], hist);
+        const streamMode = body?.stream !== false; // default=true
+        const session = await access.startSession();
+        const chatStream = await session.sendRequest({ prompt, attachments: [] });
+
+        if (streamMode) {
+          res.writeHead(200, {
+            'Content-Type':'text/event-stream',
+            'Cache-Control':'no-cache',
+            'Connection':'keep-alive'
+          });
+          const id = `cmp_${Math.random().toString(36).slice(2)}`;
+          const h1 = chatStream.onDidProduceContent((chunk) => {
+            res.write(`data: ${JSON.stringify({
+              id, object:'chat.completion.chunk',
+              choices:[{ index:0, delta:{ content: chunk } }]
+            })}\n\n`);
+          });
+          const endAll = () => {
+            res.write('data: [DONE]\n\n'); res.end();
+            h1.dispose(); h2.dispose();
+          };
+          const h2 = chatStream.onDidEnd(endAll);
+          req.on('close', endAll);
+          return;
+        } else {
+          let buf = '';
+          const h1 = chatStream.onDidProduceContent((chunk) => { buf += chunk; });
+          await new Promise<void>(resolve => {
+            const h2 = chatStream.onDidEnd(() => { h1.dispose(); h2.dispose(); resolve(); });
+          });
+          res.writeHead(200, { 'Content-Type':'application/json' });
+          res.end(JSON.stringify({
+            id:`cmpl_${Math.random().toString(36).slice(2)}`,
+            object:'chat.completion',
+            choices:[{ index:0, message:{ role:'assistant', content: buf }, finish_reason:'stop' }]
+          }));
+          return;
+        }
+      }
+      res.writeHead(404).end();
+    } catch (e:any) {
+      res.writeHead(500, { 'Content-Type':'application/json' });
+      res.end(JSON.stringify({ error:{ message: e?.message ?? 'internal_error', type:'server_error', code:'internal_error' } }));
+    }
   });
-  ctx.subscriptions.push({ dispose: () => wss.close() });
-  return { server: wss, close: async () => new Promise<void>(r => { wss.close(() => r()); }) };
+
+  server.listen(portCfg, host, () => {
+    const addr = server!.address();
+    const shown = typeof addr === 'object' && addr ? `${addr.address}:${addr.port}` : `${host}:${portCfg}`;
+    vscode.window.setStatusBarMessage(`Copilot Bridge: ${access ? 'OK' : 'Unavailable'} @ ${shown}`);
+  });
+
+  ctx.subscriptions.push({ dispose: () => server?.close() });
 }
 
+export function deactivate() {
+  server?.close();
+}
 
-⸻
+function readJson(req: http.IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let data = ''; req.on('data', c => data += c);
+    req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); } });
+    req.on('error', reject);
+  });
+}
 
-Configuration & UX
-	•	Settings (bridge.*):
-	•	enabled (bool), bindAddress (default 127.0.0.1), openai.port (int), rpc.port (int), token (string), readOnly (bool).
-	•	Commands:
-	•	Enable/Disable: starts/stops servers and updates status bar.
-	•	Status: shows ports, health, policy state.
-	•	Output channel logs significant events (start/stop, errors).
+function normalizeMessages(messages: any[], histWindow: number): string {
+  const system = messages.filter((m:any) => m.role === 'system').pop()?.content;
+  const turns = messages.filter((m:any) => m.role === 'user' || m.role === 'assistant').slice(-histWindow*2);
+  const dialog = turns.map((m:any) => `${m.role}: ${asText(m.content)}`).join('\n');
+  return `${system ? `[SYSTEM]\n${asText(system)}\n\n` : ''}[DIALOG]\n${dialog}`;
+}
 
-⸻
+function asText(content: any): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.map(asText).join('\n');
+  if ((content as any)?.text) return (content as any).text;
+  try { return JSON.stringify(content); } catch { return String(content); }
+}
+```
 
-Testing checklist
-	1.	OpenAI facade
-	•	curl -N -H "Content-Type: application/json" -d '{"model":"gpt-4o-copilot","stream":true,"messages":[{"role":"user","content":"hello"}]}' http://127.0.0.1:<port>/v1/chat/completions
-	•	Expect streamed chunks and [DONE].
-	2.	Search/edit
-	•	Connect WS client; call mcp.search.code for a known string; verify hits.
-	•	Apply a controlled unified diff; verify file saved and formatted.
-	3.	Safety
-	•	With readOnly=true, mcp.edit.applyPatch should return policy error.
-	•	With .agent-policy.yaml denying path, write should be rejected.
-	4.	Resilience
-	•	Kill and restart Copilot auth (sign out/in) → /healthz and facade should report unavailability then recover.
+---
 
-⸻
-
-Operational guidance
-	•	Local only: keep default binding to 127.0.0.1; require a token to bind beyond loopback (not recommended).
-	•	Per‑user: one desktop session, one bridge. Do not expose externally or share across users.
-	•	No caching to bypass usage controls; treat the bridge as a convenience, not a relay service.
-
-⸻
+## Delivery Checklist
+- Extension skeleton with settings + commands.
+- HTTP server (loopback), `/healthz`, `/v1/models`, `/v1/chat/completions`.
+- Copilot access + session streaming.
+- Prompt normalization (system + last N turns).
+- SSE mapping and non‑stream fallback.
+- Optional bearer token check.
+- Status bar + Output channel diagnostics.
+- Tests: health, streaming, non‑stream, auth, unavailability.
+- 
