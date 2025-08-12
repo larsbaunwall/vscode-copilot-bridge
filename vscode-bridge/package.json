@@ -1,0 +1,92 @@
+{
+  "name": "copilot-bridge",
+  "displayName": "Copilot Bridge (OpenAI Facade + JSON-RPC)",
+  "description": "Bridge Copilot Chat to an OpenAI-style API and expose JSON-RPC tools inside VS Code Desktop",
+  "version": "0.1.0",
+  "publisher": "larsbaunwall",
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:bridge.enable",
+    "onCommand:bridge.disable",
+    "onCommand:bridge.status"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "bridge.enable",
+        "title": "Copilot Bridge: Enable"
+      },
+      {
+        "command": "bridge.disable",
+        "title": "Copilot Bridge: Disable"
+      },
+      {
+        "command": "bridge.status",
+        "title": "Copilot Bridge: Status"
+      }
+    ],
+    "configuration": {
+      "title": "Copilot Bridge",
+      "properties": {
+        "bridge.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start servers on activation"
+        },
+        "bridge.bindAddress": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Bind address for HTTP and WebSocket servers"
+        },
+        "bridge.openai.port": {
+          "type": "number",
+          "default": 0,
+          "description": "Port for OpenAI HTTP facade (0 = pick random free port)"
+        },
+        "bridge.rpc.port": {
+          "type": "number",
+          "default": 0,
+          "description": "Port for JSON-RPC WebSocket server (0 = pick random free port)"
+        },
+        "bridge.token": {
+          "type": "string",
+          "default": "",
+          "description": "Optional bearer token for HTTP and WS auth"
+        },
+        "bridge.readOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reject write operations by default"
+        },
+        "bridge.history.maxTurns": {
+          "type": "number",
+          "default": 3,
+          "description": "Max dialog turns to include in prompt"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "lint": "tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "minimatch": "^9.0.4",
+    "ws": "^8.17.0",
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/vscode": "^1.86.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.5.0"
+  }
+}
