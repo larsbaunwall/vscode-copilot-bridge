@@ -21,9 +21,15 @@ Endpoints exposed:
 
 The extension will autostart and requires VS Code to be running.
 
+## Why this?
+
+I was looking for a Github Copilot CLI experience along the likes of OpenAI Codex and Claude Code, but found a bit underwhelming support for that in the current offering. I thought this could be a stepping stone to a proper CLI (or agentic orchestration) built on-top of Github Copilot. While we await the real thing.
+
 ### Don't break your Copilot license
 
-This extension allows you to use your Copilot outside of VS Code **for your own personal use only** obeying the same terms as set forth in the VS Code and Github Copilot terms of service.
+This extension enable you to use your Copilot outside of VS Code **for your own personal use only** obeying the same terms as set forth in the VS Code and Github Copilot terms of service.
+
+Use at your own risk: You are solely responsible for adhering to the license terms of your Copilot subscription.
 
 ## Quick start
 
