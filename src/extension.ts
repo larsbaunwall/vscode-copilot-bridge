@@ -64,18 +64,6 @@ async function startBridge() {
         if (token && req.headers.authorization !== `Bearer ${token}`) {
           writeJson(res, 401, { error: { message: 'unauthorized', type: 'invalid_request_error', code: 'unauthorized' } });
           return;
-        if (req.method === 'POST' && req.url?.startsWith('/v1/chat/completions')) {
-          if (activeRequests >= maxConc) {
-            res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' });
-            res.end(JSON.stringify({ error: { message: 'too many requests', type: 'rate_limit_error', code: 'rate_limit_exceeded' } }));
-            if (verbose) output?.appendLine(`429 throttled (active=${activeRequests}, max=${maxConc})`);
-            return;
-          }
-        }
-
-          activeRequests++;
-          if (verbose) output?.appendLine(`Request started (active=${activeRequests})`);
-
         }
         if (req.method === 'POST' && req.url?.startsWith('/v1/chat/completions')) {
           if (activeRequests >= maxConc) {
