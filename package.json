@@ -28,24 +28,40 @@
       "properties": {
         "bridge.enabled": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Start the Copilot Bridge automatically when VS Code starts."
         },
         "bridge.host": {
           "type": "string",
-          "default": "127.0.0.1"
+          "default": "127.0.0.1",
+          "description": "Bind address for the local HTTP server. For security, keep this on loopback."
         },
         "bridge.port": {
           "type": "number",
-          "default": 0
+          "default": 0,
+          "description": "Port for the local HTTP server. 0 picks a random ephemeral port."
         },
         "bridge.token": {
           "type": "string",
-          "default": ""
+          "default": "",
+          "description": "Optional bearer token required in Authorization header. Leave empty to disable."
         },
         "bridge.historyWindow": {
           "type": "number",
           "default": 3,
-          "minimum": 0
+          "minimum": 0,
+          "description": "Number of user/assistant turns to include (system message is kept separately)."
+        },
+        "bridge.maxConcurrent": {
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "description": "Maximum concurrent /v1/chat/completions requests. Excess requests return 429."
+        },
+        "bridge.verbose": {
+          "type": "boolean",
+          "default": false,
+          "description": "Verbose logging to the 'Copilot Bridge' output channel."
         }
       }
     }

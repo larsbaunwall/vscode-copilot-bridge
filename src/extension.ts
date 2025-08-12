@@ -7,6 +7,7 @@ let access: vscode.ChatAccess | undefined;
 let statusItem: vscode.StatusBarItem | undefined;
 let output: vscode.OutputChannel | undefined;
 let running = false;
+let activeRequests = 0;
 
 export async function activate(ctx: vscode.ExtensionContext) {
   output = vscode.window.createOutputChannel('Copilot Bridge');
@@ -47,6 +48,7 @@ async function startBridge() {
   const portCfg = cfg.get<number>('port') ?? 0;
   const token = (cfg.get<string>('token') ?? '').trim();
   const hist = cfg.get<number>('historyWindow') ?? 3;
+  const verbose = cfg.get<boolean>('verbose') ?? false;
 
   try {
     try {
@@ -57,6 +59,7 @@ async function startBridge() {
 
     server = http.createServer(async (req, res) => {
       try {
+        if (verbose) output?.appendLine(`HTTP ${req.method} ${req.url}`);
         if (token && req.headers.authorization !== `Bearer ${token}`) {
           writeJson(res, 401, { error: { message: 'unauthorized', type: 'invalid_request_error', code: 'unauthorized' } });
           return;
@@ -79,7 +82,15 @@ async function startBridge() {
           }
 
           const body = await readJson(req);
-          const messages = Array.isArray(body?.messages) ? body.messages : [];
+          const messages = Array.isArray(body?.messages) ? body.messages : null;
+          if (!messages || messages.length === 0 || !messages.every((m: any) =>
+            m && typeof m.role === 'string' &&
+            /^(system|user|assistant)$/.test(m.role) &&
+            m.content !== undefined && m.content !== null
+          )) {
+            writeJson(res, 400, { error: { message: 'invalid request', type: 'invalid_request_error', code: 'invalid_payload' } });
+            return;
+          }
           const prompt = normalizeMessages(messages, hist);
           const streamMode = body?.stream !== false;
 
@@ -93,6 +104,7 @@ async function startBridge() {
               'Connection': 'keep-alive'
             });
             const id = `cmp_${Math.random().toString(36).slice(2)}`;
+            if (verbose) output?.appendLine(`SSE start id=${id}`);
             const h1 = chatStream.onDidProduceContent((chunk) => {
               const payload = {
                 id,
@@ -102,6 +114,7 @@ async function startBridge() {
               res.write(`data: ${JSON.stringify(payload)}\n\n`);
             });
             const endAll = () => {
+              if (verbose) output?.appendLine(`SSE end id=${id}`);
               res.write('data: [DONE]\n\n');
               res.end();
               h1.dispose();
@@ -120,6 +133,7 @@ async function startBridge() {
                 resolve();
               });
             });
+            if (verbose) output?.appendLine(`Non-stream complete len=${buf.length}`);
             writeJson(res, 200, {
               id: `cmpl_${Math.random().toString(36).slice(2)}`,
               object: 'chat.completion',
