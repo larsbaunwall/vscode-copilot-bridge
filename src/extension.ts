@@ -311,7 +311,12 @@ function readJson(req: http.IncomingMessage): Promise<any> {
     req.on('data', (c: Buffer) => { data += c.toString(); });
     req.on('end', () => {
       if (!data) return resolve({});
-      try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+      try {
+        resolve(JSON.parse(data));
+      } catch (e: any) {
+        const snippet = data.length > 200 ? data.slice(0, 200) + '...' : data;
+        reject(new Error(`Failed to parse JSON: ${e && e.message ? e.message : String(e)}. Data: "${snippet}"`));
+      }
     });
     req.on('error', reject);
   });
