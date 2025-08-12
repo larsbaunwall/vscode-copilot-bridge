@@ -78,6 +78,7 @@ async function startBridge() {
           const cfgNow = vscode.workspace.getConfiguration('bridge');
           const verboseNow = cfgNow.get<boolean>('verbose') ?? false;
           if (!access && verboseNow) {
+          if (verboseNow) output?.appendLine(`Healthz: access=${access ? 'present' : 'missing'}`);
             await getAccess();
           }
           writeJson(res, 200, { ok: true, copilot: access ? 'ok' : 'unavailable', version: vscode.version });

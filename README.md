@@ -58,6 +58,16 @@ Optional: Packaging a VSIX
 - bridge.token (string; default ""): optional bearer token; empty disables auth
 - bridge.historyWindow (number; default 3): number of user/assistant turns to keep
 - bridge.maxConcurrent (number; default 1): max concurrent chat requests; excess → 429
+## Viewing logs
+
+To see verbose logs:
+1) Enable: Settings → search “Copilot Bridge” → enable “bridge.verbose”
+2) Open: View → Output → select “Copilot Bridge” in the dropdown
+3) Trigger a request (e.g., curl /v1/chat/completions). You’ll see:
+   - HTTP request lines (method/path)
+   - Access acquisition attempts (“Copilot access missing; attempting to acquire…”, “Copilot access acquired.”)
+   - SSE lifecycle (“SSE start …”, “SSE end …”)
+   - Health checks (best-effort access check when verbose is on)
 - bridge.verbose (boolean; default false): verbose logs to “Copilot Bridge” output channel
 
 ## Manual Testing (curl)
