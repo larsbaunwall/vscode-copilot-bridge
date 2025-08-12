@@ -4,7 +4,7 @@ Local OpenAI-compatible HTTP facade to GitHub Copilot via the VS Code Language M
 
 - Endpoints (local-only, default bind 127.0.0.1):
   - POST /v1/chat/completions (SSE streaming; use "stream": false for non-streaming)
-  - GET /v1/models (synthetic listing: gpt-4o-copilot)
+  - GET /v1/models (dynamic listing of available Copilot models)
   - GET /healthz (ok/unavailable + vscode.version)
 
 - Copilot pipe: vscode.lm.selectChatModels({ vendor: "copilot", family: "gpt-4o" }) → model.sendRequest(messages)
@@ -52,6 +52,28 @@ Optional: Packaging a VSIX
 ## Enabling the Language Model API (if required)
 
 If your VS Code build requires enabling proposed APIs for the Language Model API, start with:
+### Models and Selection
+
+- The bridge lists available GitHub Copilot chat models using the VS Code Language Model API. Example:
+  curl http://127.0.0.1:&lt;port&gt;/v1/models
+  → { "data": [ { "id": "gpt-4o-copilot", ... }, ... ] }
+
+- To target a specific model for inference, set the "model" field in your POST body. The bridge accepts:
+  - IDs returned by /v1/models (e.g., "gpt-4o-copilot")
+  - A Copilot family name (e.g., "gpt-4o")
+  - "copilot" to allow default selection
+
+Examples:
+curl -N -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o-copilot","messages":[{"role":"user","content":"hello"}]}' \
+  http://127.0.0.1:&lt;port&gt;/v1/chat/completions
+
+curl -N -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}' \
+  http://127.0.0.1:&lt;port&gt;/v1/chat/completions
+
+- If a requested model is unavailable, the bridge returns:
+  404 with { "error": { "code": "model_not_found", "reason": "not_found" } }.
 - Stable VS Code: `code --enable-proposed-api thinkability.copilot-bridge`
 - VS Code Insiders or Extension Development Host (F5) also works.
 

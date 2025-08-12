@@ -84,23 +84,40 @@ async function startBridge() {
         }
 
         if (req.method === 'GET' && req.url === '/v1/models') {
-          writeJson(res, 200, { data: [{ id: 'gpt-4o-copilot', object: 'model', owned_by: 'vscode-bridge' }] });
+          try {
+            const models = await listCopilotModels();
+            writeJson(res, 200, { data: models.map((id: string) => ({ id, object: 'model', owned_by: 'vscode-bridge' })) });
+          } catch (e: any) {
+            writeJson(res, 200, { data: [{ id: 'copilot', object: 'model', owned_by: 'vscode-bridge' }] });
+          }
           return;
         }
 
         if (req.method === 'POST' && req.url?.startsWith('/v1/chat/completions')) {
-          let model = await getModel();
-          if (!model) {
-            const hasLM = !!((vscode as any).lm && typeof (vscode as any).lm.selectChatModels === 'function');
-            const reason = !hasLM ? 'missing_language_model_api' : (lastReason || 'copilot_model_unavailable');
-            writeJson(res, 503, { error: { message: 'Copilot unavailable', type: 'server_error', code: 'copilot_unavailable', reason } });
-            return;
-          }
-
           activeRequests++;
           if (verbose) output?.appendLine(`Request started (active=${activeRequests})`);
           try {
             const body = await readJson(req);
+            const requestedModel: string | undefined = typeof body?.model === 'string' ? body.model : undefined;
+            let familyOverride: string | undefined = undefined;
+            if (requestedModel && /-copilot$/i.test(requestedModel)) {
+              familyOverride = requestedModel.replace(/-copilot$/i, '');
+            } else if (requestedModel && requestedModel.toLowerCase() === 'copilot') {
+              familyOverride = undefined;
+            }
+
+            let model = await getModel(false, familyOverride);
+            const hasLM = !!((vscode as any).lm && typeof (vscode as any).lm.selectChatModels === 'function');
+            if (!model && familyOverride && hasLM) {
+              lastReason = 'not_found';
+              writeJson(res, 404, { error: { message: 'model not found', type: 'invalid_request_error', code: 'model_not_found', reason: 'not_found' } });
+              return;
+            }
+            if (!model) {
+              const reason = !hasLM ? 'missing_language_model_api' : (lastReason || 'copilot_model_unavailable');
+              writeJson(res, 503, { error: { message: 'Copilot unavailable', type: 'server_error', code: 'copilot_unavailable', reason } });
+              return;
+            }
             const messages = Array.isArray(body?.messages) ? body.messages : null;
             if (!messages || messages.length === 0 || !messages.every((m: any) =>
               m && typeof m.role === 'string' &&
@@ -248,14 +265,14 @@ function normalizeMessagesLM(messages: any[], histWindow: number): any[] {
   return result;
 }
 
-async function getModel(force = false): Promise<any | undefined> {
-  if (!force && modelCache) return modelCache;
+async function getModel(force = false, family?: string): Promise<any | undefined> {
+  if (!force && modelCache && !family) return modelCache;
   const cfg = vscode.workspace.getConfiguration('bridge');
   const verbose = cfg.get<boolean>('verbose') ?? false;
 
   const hasLM = !!((vscode as any).lm && typeof (vscode as any).lm.selectChatModels === 'function');
   if (!hasLM) {
-    modelCache = undefined;
+    if (!family) modelCache = undefined;
     lastReason = 'missing_language_model_api';
     const info = server ? server.address() : undefined;
     const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : '';
@@ -265,28 +282,34 @@ async function getModel(force = false): Promise<any | undefined> {
   }
 
   try {
-    let models = await (vscode as any).lm.selectChatModels({ vendor: 'copilot', family: 'gpt-4o' });
-    if (!models || models.length === 0) {
-      models = await (vscode as any).lm.selectChatModels({ vendor: 'copilot' });
+    let models: any[] | undefined;
+    if (family) {
+      models = await (vscode as any).lm.selectChatModels({ vendor: 'copilot', family });
+    } else {
+      models = await (vscode as any).lm.selectChatModels({ vendor: 'copilot', family: 'gpt-4o' });
+      if (!models || models.length === 0) {
+        models = await (vscode as any).lm.selectChatModels({ vendor: 'copilot' });
+      }
     }
     if (!models || models.length === 0) {
-      modelCache = undefined;
-      lastReason = 'copilot_model_unavailable';
+      if (!family) modelCache = undefined;
+      lastReason = family ? 'not_found' : 'copilot_model_unavailable';
       const info = server ? server.address() : undefined;
       const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : '';
       statusItem && (statusItem.text = `Copilot Bridge: Unavailable ${bound ? `@ ${bound}` : ''}`);
-      if (verbose) output?.appendLine('No Copilot language models available.');
+      if (verbose) output?.appendLine(family ? `No Copilot language models available for family="${family}".` : 'No Copilot language models available.');
       return undefined;
     }
-    modelCache = models[0];
+    const chosen = models[0];
+    if (!family) modelCache = chosen;
     lastReason = undefined;
     const info = server ? server.address() : undefined;
     const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : '';
     statusItem && (statusItem.text = `Copilot Bridge: OK ${bound ? `@ ${bound}` : ''}`);
-    if (verbose) output?.appendLine(`Copilot model selected.`);
-    return modelCache;
+    if (verbose) output?.appendLine(`Copilot model selected${family ? ` (family=${family})` : ''}.`);
+    return chosen;
   } catch (e: any) {
-    modelCache = undefined;
+    if (!family) modelCache = undefined;
     const info = server ? server.address() : undefined;
     const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : '';
     statusItem && (statusItem.text = `Copilot Bridge: Unavailable ${bound ? `@ ${bound}` : ''}`);
@@ -296,12 +319,29 @@ async function getModel(force = false): Promise<any | undefined> {
       else if (code === 'RateLimited') lastReason = 'rate_limited';
       else if (code === 'NotFound') lastReason = 'not_found';
       else lastReason = 'copilot_unavailable';
-      if (verbose) output?.appendLine(`LM select error: ${e.message} code=${code}`);
+      if (verbose) output?.appendLine(`LM select error: ${e.message} code=${code}${family ? ` family=${family}` : ''}`);
     } else {
       lastReason = 'copilot_unavailable';
-      if (verbose) output?.appendLine(`LM select error: ${e?.message || String(e)}`);
+      if (verbose) output?.appendLine(`LM select error: ${e?.message || String(e)}${family ? ` family=${family}` : ''}`);
     }
     return undefined;
+  }
+}
+
+async function listCopilotModels(): Promise<string[]> {
+  const hasLM = !!((vscode as any).lm && typeof (vscode as any).lm.selectChatModels === 'function');
+  if (!hasLM) return ['copilot'];
+  try {
+    const models: any[] = await (vscode as any).lm.selectChatModels({ vendor: 'copilot' });
+    if (!models || models.length === 0) return ['copilot'];
+    const ids = models.map((m: any, idx: number) => {
+      const family = (m as any)?.family || (m as any)?.modelFamily || (m as any)?.name || '';
+      const norm = typeof family === 'string' && family.trim() ? family.trim().toLowerCase() : `copilot-${idx + 1}`;
+      return norm.endsWith('-copilot') ? norm : `${norm}-copilot`;
+    });
+    return Array.from(new Set(ids));
+  } catch {
+    return ['copilot'];
   }
 }
 
