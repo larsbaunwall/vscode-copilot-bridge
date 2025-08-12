@@ -25,6 +25,11 @@ Prerequisites:
 - Node.js 18+ (recommended)
 - npm
 
+- Auto-recovery: the bridge re-requests Copilot access on each chat request if missing; no restart required after signing in. `/healthz` will best-effort recheck only when `bridge.verbose` is true.
+
+
+
+
 Steps:
 1) Install deps and compile:
    npm install

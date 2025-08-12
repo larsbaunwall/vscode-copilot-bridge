@@ -75,6 +75,11 @@ async function startBridge() {
         }
 
         if (req.method === 'GET' && req.url === '/healthz') {
+          const cfgNow = vscode.workspace.getConfiguration('bridge');
+          const verboseNow = cfgNow.get<boolean>('verbose') ?? false;
+          if (!access && verboseNow) {
+            await getAccess();
+          }
           writeJson(res, 200, { ok: true, copilot: access ? 'ok' : 'unavailable', version: vscode.version });
           return;
         }
@@ -85,6 +90,14 @@ async function startBridge() {
         }
 
         if (req.method === 'POST' && req.url?.startsWith('/v1/chat/completions')) {
+          if (!access) {
+            if (verbose) output?.appendLine('Copilot access missing; attempting to acquire...');
+            await getAccess();
+          }
+          if (!access) {
+            if (verbose) output?.appendLine('Copilot access missing; attempting to acquire...');
+            await getAccess();
+          }
           if (!access) {
             writeJson(res, 503, { error: { message: 'Copilot unavailable', type: 'server_error', code: 'copilot_unavailable' } });
             return;
@@ -106,6 +119,7 @@ async function startBridge() {
             const prompt = normalizeMessages(messages, hist);
             const streamMode = body?.stream !== false;
 
+            if (verbose) output?.appendLine('Starting Copilot chat session...');
             const session = await access.startSession();
             const chatStream = await session.sendRequest({ prompt, attachments: [] });
 
@@ -162,6 +176,7 @@ async function startBridge() {
         res.writeHead(404).end();
       } catch (e: any) {
         output?.appendLine(`Error: ${e?.stack || e?.message || String(e)}`);
+        access = undefined;
         writeJson(res, 500, { error: { message: e?.message ?? 'internal_error', type: 'server_error', code: 'internal_error' } });
       }
     });
@@ -216,6 +231,28 @@ function normalizeMessages(messages: any[], histWindow: number): string {
   const sysPart = sys ? `[SYSTEM]\n${toText(sys.content)}\n\n` : '';
   return `${sysPart}[DIALOG]\n${dialog}`;
 }
+async function getAccess(force = false): Promise<vscode.ChatAccess | undefined> {
+  if (!force && access) return access;
+  const cfg = vscode.workspace.getConfiguration('bridge');
+  const verbose = cfg.get<boolean>('verbose') ?? false;
+  try {
+    const newAccess = await vscode.chat.requestChatAccess('copilot');
+    access = newAccess;
+    const info = server ? server.address() : undefined;
+    const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : '';
+    statusItem && (statusItem.text = `Copilot Bridge: OK ${bound ? `@ ${bound}` : ''}`);
+    if (verbose) output?.appendLine('Copilot access acquired.');
+    return access;
+  } catch (e: any) {
+    access = undefined;
+    const info = server ? server.address() : undefined;
+    const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : '';
+    statusItem && (statusItem.text = `Copilot Bridge: Unavailable ${bound ? `@ ${bound}` : ''}`);
+    if (verbose) output?.appendLine(`Copilot access request failed: ${e?.message || String(e)}`);
+    return undefined;
+  }
+}
+
 
 function readJson(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
