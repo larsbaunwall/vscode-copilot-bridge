@@ -28,7 +28,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
     const info = server ? server.address() : undefined;
     const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : 'n/a';
     const needsToken = !!(vscode.workspace.getConfiguration('bridge').get<string>('token') || '').trim();
-    vscode.window.showInformationMessage(`Copilot Bridge: ${running ? 'Enabled' : 'Disabled'} | Bound: ${bound} | Token: ${needsToken ? 'Required' : 'None'}`);
+    vscode.window.showInformationMessage(`Copilot Bridge: ${running ? 'Enabled' : 'Disabled'} | Bound: ${bound} | Token: ${needsToken ? 'Set' : 'None'}`);
   }));
 
   const cfg = vscode.workspace.getConfiguration('bridge');
@@ -75,7 +75,7 @@ async function startBridge() {
           const verboseNow = cfgNow.get<boolean>('verbose') ?? false;
           const hasLM = !!((vscode as any).lm && typeof (vscode as any).lm.selectChatModels === 'function');
           if (!modelCache && verboseNow) {
-            if (verboseNow) output?.appendLine(`Healthz: model=${modelCache ? 'present' : 'missing'} lmApi=${hasLM ? 'ok' : 'missing'}`);
+            output?.appendLine(`Healthz: model=${modelCache ? 'present' : 'missing'} lmApi=${hasLM ? 'ok' : 'missing'}`);
             await getModel();
           }
           const unavailableReason = modelCache ? undefined : (!hasLM ? 'missing_language_model_api' : (lastReason || 'copilot_model_unavailable'));
