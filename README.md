@@ -1,13 +1,13 @@
 # VS Code Copilot Bridge (Desktop, Inference-only)
 
-Local OpenAI-compatible HTTP facade to GitHub Copilot Chat via the VS Code Chat provider.
+Local OpenAI-compatible HTTP facade to GitHub Copilot via the VS Code Language Model API.
 
 - Endpoints (local-only, default bind 127.0.0.1):
   - POST /v1/chat/completions (SSE streaming; use "stream": false for non-streaming)
   - GET /v1/models (synthetic listing: gpt-4o-copilot)
   - GET /healthz (ok/unavailable + vscode.version)
 
-- Copilot pipe: vscode.chat.requestChatAccess('copilot') → startSession().sendRequest({ prompt })
+- Copilot pipe: vscode.lm.selectChatModels({ vendor: "copilot", family: "gpt-4o" }) → model.sendRequest(messages)
 
 - Prompt normalization: last system message + last N user/assistant turns (default 3) rendered as:
   [SYSTEM]
@@ -49,26 +49,25 @@ Optional: Packaging a VSIX
   npm i -g @vscode/vsce
   vsce package
 - Then install the generated .vsix via “Extensions: Install from VSIX…”
-## Enabling the VS Code Chat proposed API
+## Enabling the Language Model API (if required)
 
-The `vscode.chat.requestChatAccess` API is currently proposed. To use this extension at runtime, enable proposed APIs for this extension:
+If your VS Code build requires enabling proposed APIs for the Language Model API, start with:
+- Stable VS Code: `code --enable-proposed-api thinkability.copilot-bridge`
+- VS Code Insiders or Extension Development Host (F5) also works.
 
-- Stable VS Code:
-  - Start with: `code --enable-proposed-api thinkability.copilot-bridge`
-- VS Code Insiders:
-  - Proposed APIs can be used when running the extension from source (F5) or with the flag above
-- Run from source:
-  - Open this folder in VS Code and press F5 (Extension Development Host)
-
-When the proposed API is not enabled, the Output (“Copilot Bridge”) will show:
-“VS Code Chat proposed API not enabled; start VS Code with: code --enable-proposed-api thinkability.copilot-bridge, or run via F5/Insiders.”
+When the API is not available, the Output (“Copilot Bridge”) will show:
+“VS Code Language Model API not available; update VS Code or enable proposed API.”
 
 ## Troubleshooting
 
 - /healthz shows `copilot: "unavailable"` with a `reason`:
-  - `missing_chat_api`: VS Code Chat proposed API not enabled (use the flag above)
-  - `copilot_unavailable`: Copilot access not granted (sign in to GitHub Copilot)
-- POST /v1/chat/completions returns 503 with `reason` giving the same codes as above.
+  - `missing_language_model_api`: Language Model API not available
+  - `copilot_model_unavailable`: No Copilot models selectable
+  - `consent_required`: User consent/sign-in required for Copilot models
+  - `rate_limited`: Provider throttling
+  - `not_found`: Requested model not found
+  - `copilot_unavailable`: Other provider errors
+- POST /v1/chat/completions returns 503 with the same `reason` codes.
 
 
 ## Configuration (bridge.*)
@@ -86,10 +85,10 @@ To see verbose logs:
 2) Open: View → Output → select “Copilot Bridge” in the dropdown
 3) Trigger a request (e.g., curl /v1/chat/completions). You’ll see:
    - HTTP request lines (method/path)
-   - Access acquisition attempts (“Copilot access missing; attempting to acquire…”, “Copilot access acquired.”)
+   - Model selection attempts (“Copilot model selected.”)
    - SSE lifecycle (“SSE start …”, “SSE end …”)
-   - Health checks (best-effort access check when verbose is on)
-   - Proposed API diagnostics (e.g., “VS Code Chat proposed API not enabled…”)
+   - Health checks (best-effort model check when verbose is on)
+   - API diagnostics (e.g., missing Language Model API)
 - bridge.verbose (boolean; default false): verbose logs to “Copilot Bridge” output channel
 
 ## Manual Testing (curl)
@@ -132,4 +131,4 @@ Concurrency:
 - Build: npm run compile
 - Watch: npm run watch
 - Main: src/extension.ts
-- Local type shim for Chat API: src/vscode-chat-shim.d.ts (for TypeScript on stable @types/vscode)
+- Note: Previously used Chat API shims are no longer needed; the bridge now uses the Language Model API.

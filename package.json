@@ -1,16 +1,12 @@
 {
   "name": "copilot-bridge",
   "displayName": "Copilot Bridge",
-  "description": "Local OpenAI-compatible chat endpoint bridging to GitHub Copilot Chat via VS Code Chat provider.",
+  "description": "Local OpenAI-compatible chat endpoint bridging to GitHub Copilot via the VS Code Language Model API.",
   "version": "0.1.0",
   "publisher": "thinkability",
   "engines": {
     "vscode": "^1.90.0"
   },
-  "enabledApiProposals": [
-    "chat",
-    "chatProvider"
-  ],
   "extensionKind": [
     "ui"
   ],
