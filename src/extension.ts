@@ -58,7 +58,7 @@ async function startBridge() {
       access = undefined;
     }
 
-    server = http.createServer(async (req, res) => {
+    server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
       try {
         if (verbose) output?.appendLine(`HTTP ${req.method} ${req.url}`);
         if (token && req.headers.authorization !== `Bearer ${token}`) {
@@ -117,7 +117,7 @@ async function startBridge() {
               });
               const id = `cmp_${Math.random().toString(36).slice(2)}`;
               if (verbose) output?.appendLine(`SSE start id=${id}`);
-              const h1 = chatStream.onDidProduceContent((chunk) => {
+              const h1 = chatStream.onDidProduceContent((chunk: string) => {
                 const payload = {
                   id,
                   object: 'chat.completion.chunk',
@@ -137,7 +137,7 @@ async function startBridge() {
               return;
             } else {
               let buf = '';
-              const h1 = chatStream.onDidProduceContent((chunk) => { buf += chunk; });
+              const h1 = chatStream.onDidProduceContent((chunk: string) => { buf += chunk; });
               await new Promise<void>((resolve) => {
                 const h2 = chatStream.onDidEnd(() => {
                   h1.dispose();
@@ -220,7 +220,7 @@ function normalizeMessages(messages: any[], histWindow: number): string {
 function readJson(req: http.IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (c) => { data += c; });
+    req.on('data', (c: Buffer) => { data += c.toString(); });
     req.on('end', () => {
       if (!data) return resolve({});
       try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
