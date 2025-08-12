@@ -8,6 +8,7 @@ let statusItem: vscode.StatusBarItem | undefined;
 let output: vscode.OutputChannel | undefined;
 let running = false;
 let activeRequests = 0;
+let lastReason: string | undefined;
 
 export async function activate(ctx: vscode.ExtensionContext) {
   output = vscode.window.createOutputChannel('Copilot Bridge');
@@ -77,11 +78,13 @@ async function startBridge() {
         if (req.method === 'GET' && req.url === '/healthz') {
           const cfgNow = vscode.workspace.getConfiguration('bridge');
           const verboseNow = cfgNow.get<boolean>('verbose') ?? false;
+          const hasProposal = !!((vscode as any).chat && typeof (vscode as any).chat.requestChatAccess === 'function');
           if (!access && verboseNow) {
-          if (verboseNow) output?.appendLine(`Healthz: access=${access ? 'present' : 'missing'}`);
+            if (verboseNow) output?.appendLine(`Healthz: access=${access ? 'present' : 'missing'} proposal=${hasProposal ? 'ok' : 'missing'}`);
             await getAccess();
           }
-          writeJson(res, 200, { ok: true, copilot: access ? 'ok' : 'unavailable', version: vscode.version });
+          const unavailableReason = access ? undefined : (!hasProposal ? 'missing_chat_api' : (lastReason || 'copilot_unavailable'));
+          writeJson(res, 200, { ok: true, copilot: access ? 'ok' : 'unavailable', reason: unavailableReason, version: vscode.version });
           return;
         }
 
@@ -100,7 +103,9 @@ async function startBridge() {
             await getAccess();
           }
           if (!access) {
-            writeJson(res, 503, { error: { message: 'Copilot unavailable', type: 'server_error', code: 'copilot_unavailable' } });
+            const hasProposal = !!((vscode as any).chat && typeof (vscode as any).chat.requestChatAccess === 'function');
+            const reason = !hasProposal ? 'missing_chat_api' : (lastReason || 'copilot_unavailable');
+            writeJson(res, 503, { error: { message: 'Copilot unavailable', type: 'server_error', code: 'copilot_unavailable', reason } });
             return;
           }
 
@@ -236,9 +241,22 @@ async function getAccess(force = false): Promise<vscode.ChatAccess | undefined> 
   if (!force && access) return access;
   const cfg = vscode.workspace.getConfiguration('bridge');
   const verbose = cfg.get<boolean>('verbose') ?? false;
+
+  const hasProposal = !!((vscode as any).chat && typeof (vscode as any).chat.requestChatAccess === 'function');
+  if (!hasProposal) {
+    access = undefined;
+    lastReason = 'missing_chat_api';
+    const info = server ? server.address() : undefined;
+    const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : '';
+    statusItem && (statusItem.text = `Copilot Bridge: Unavailable ${bound ? `@ ${bound}` : ''}`);
+    if (verbose) output?.appendLine('VS Code Chat proposed API not enabled; start VS Code with: code --enable-proposed-api thinkability.copilot-bridge, or run via F5/Insiders.');
+    return undefined;
+  }
+
   try {
-    const newAccess = await vscode.chat.requestChatAccess('copilot');
+    const newAccess = await (vscode as any).chat.requestChatAccess('copilot');
     access = newAccess;
+    lastReason = undefined;
     const info = server ? server.address() : undefined;
     const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : '';
     statusItem && (statusItem.text = `Copilot Bridge: OK ${bound ? `@ ${bound}` : ''}`);
@@ -246,6 +264,7 @@ async function getAccess(force = false): Promise<vscode.ChatAccess | undefined> 
     return access;
   } catch (e: any) {
     access = undefined;
+    lastReason = 'copilot_unavailable';
     const info = server ? server.address() : undefined;
     const bound = info && typeof info === 'object' ? `${info.address}:${info.port}` : '';
     statusItem && (statusItem.text = `Copilot Bridge: Unavailable ${bound ? `@ ${bound}` : ''}`);

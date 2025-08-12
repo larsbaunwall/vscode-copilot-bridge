@@ -49,6 +49,27 @@ Optional: Packaging a VSIX
   npm i -g @vscode/vsce
   vsce package
 - Then install the generated .vsix via “Extensions: Install from VSIX…”
+## Enabling the VS Code Chat proposed API
+
+The `vscode.chat.requestChatAccess` API is currently proposed. To use this extension at runtime, enable proposed APIs for this extension:
+
+- Stable VS Code:
+  - Start with: `code --enable-proposed-api thinkability.copilot-bridge`
+- VS Code Insiders:
+  - Proposed APIs can be used when running the extension from source (F5) or with the flag above
+- Run from source:
+  - Open this folder in VS Code and press F5 (Extension Development Host)
+
+When the proposed API is not enabled, the Output (“Copilot Bridge”) will show:
+“VS Code Chat proposed API not enabled; start VS Code with: code --enable-proposed-api thinkability.copilot-bridge, or run via F5/Insiders.”
+
+## Troubleshooting
+
+- /healthz shows `copilot: "unavailable"` with a `reason`:
+  - `missing_chat_api`: VS Code Chat proposed API not enabled (use the flag above)
+  - `copilot_unavailable`: Copilot access not granted (sign in to GitHub Copilot)
+- POST /v1/chat/completions returns 503 with `reason` giving the same codes as above.
+
 
 ## Configuration (bridge.*)
 
@@ -68,6 +89,7 @@ To see verbose logs:
    - Access acquisition attempts (“Copilot access missing; attempting to acquire…”, “Copilot access acquired.”)
    - SSE lifecycle (“SSE start …”, “SSE end …”)
    - Health checks (best-effort access check when verbose is on)
+   - Proposed API diagnostics (e.g., “VS Code Chat proposed API not enabled…”)
 - bridge.verbose (boolean; default false): verbose logs to “Copilot Bridge” output channel
 
 ## Manual Testing (curl)
