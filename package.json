@@ -1,0 +1,63 @@
+{
+  "name": "copilot-bridge",
+  "displayName": "Copilot Bridge",
+  "description": "Local OpenAI-compatible chat endpoint bridging to GitHub Copilot Chat via VS Code Chat provider.",
+  "version": "0.1.0",
+  "publisher": "thinkability",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:bridge.enable",
+    "onCommand:bridge.disable",
+    "onCommand:bridge.status"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "bridge.enable", "title": "Copilot Bridge: Enable" },
+      { "command": "bridge.disable", "title": "Copilot Bridge: Disable" },
+      { "command": "bridge.status", "title": "Copilot Bridge: Status" }
+    ],
+    "configuration": {
+      "title": "Copilot Bridge",
+      "properties": {
+        "bridge.enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "bridge.host": {
+          "type": "string",
+          "default": "127.0.0.1"
+        },
+        "bridge.port": {
+          "type": "number",
+          "default": 0
+        },
+        "bridge.token": {
+          "type": "string",
+          "default": ""
+        },
+        "bridge.historyWindow": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.4.0",
+    "vscode": "^1.1.40"
+  }
+}
