@@ -56,16 +56,30 @@ export const startServer = async (): Promise<void> => {
   });
 
   await new Promise<void>((resolve, reject) => {
-    const srv: Server = app.listen(config.port, config.host, (err?: any) => {
-      if (err) {
-        reject(err);
-      } else {
+    let resolved = false;
+    try {
+      app.listen(config.port, config.host, () => {
+        const srv: Server | undefined = app.server;
+        if (!srv) {
+          reject(new Error('Server failed to start'));
+          return;
+        }
         state.server = srv;
         updateStatusAfterStart();
+        resolved = true;
         resolve();
-      }
-    });
-    srv.on('error', reject);
+      });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    const srv: Server | undefined = app.server;
+    if (srv && typeof (srv as any).on === 'function') {
+      srv.on('error', reject);
+    }
+    if (!resolved && app.server && typeof (app.server as any).on === 'function') {
+      app.server.on('error', reject);
+    }
   });
 };
 
