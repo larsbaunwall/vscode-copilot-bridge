@@ -1,156 +1,192 @@
-# VS Code Copilot Bridge (Desktop, Inference-only)
+<img src="images/icon.png" width="100" />
 
-Local OpenAI-compatible HTTP facade to GitHub Copilot via the VS Code Language Model API.
+# Copilot Bridge (VS Code Extension)
 
-- Endpoints (local-only, default bind 127.0.0.1):
-  - POST /v1/chat/completions (SSE streaming; use "stream": false for non-streaming)
-  - GET /v1/models (dynamic listing of available Copilot models)
-  - GET /healthz (ok/unavailable + vscode.version)
+[![Visual Studio Marketplace](https://vsmarketplacebadges.dev/version/thinkability.copilot-bridge.svg)](https://marketplace.visualstudio.com/items?itemName=thinkability.copilot-bridge)
 
-- Copilot pipe: vscode.lm.selectChatModels({ vendor: "copilot", family: "gpt-4o" }) → model.sendRequest(messages)
+Expose GitHub Copilot as a local, OpenAI-compatible HTTP endpoint running inside VS Code. The bridge forwards chat requests to Copilot using the VS Code Language Model API and streams results back to you.
 
-- Prompt normalization: last system message + last N user/assistant turns (default 3) rendered as:
-  [SYSTEM]
-  …
-  [DIALOG]
-  user: …
-  assistant: …
+What you get:
 
-- Security: loopback-only binding by default; optional Authorization: Bearer <token>.
+- Local HTTP server (loopback-only by default)
+- OpenAI-style endpoints and payloads
+- Server-Sent Events (SSE) streaming for chat completions
+- Dynamic listing of available Copilot chat models
 
-## Install, Build, and Run
+Endpoints exposed:
 
-Prerequisites:
-- VS Code Desktop (stable), GitHub Copilot signed in
-- Node.js 18+ (recommended)
-- npm
+- POST /v1/chat/completions — OpenAI-style chat API (streaming by default)
+- GET  /v1/models — lists available Copilot models
+- GET  /healthz — health + VS Code version
 
-- Auto-recovery: the bridge re-requests Copilot access on each chat request if missing; no restart required after signing in. `/healthz` will best-effort recheck only when `bridge.verbose` is true.
+The extension will autostart and requires VS Code to be running.
 
+### Don't break your Copilot license
 
+This extension allows you to use your Copilot outside of VS Code **for your own personal use only** obeying the same terms as set forth in the VS Code and Github Copilot terms of service.
 
+## Quick start
 
-Steps:
-1) Install deps and compile:
-   npm install
-   npm run compile
+Requirements:
 
-2) Launch in VS Code (recommended for debugging):
-   - Open this folder in VS Code
-   - Press F5 to run the extension in a new Extension Development Host
+- VS Code Desktop with GitHub Copilot signed in
+- If building locally: Node.js 18+ and npm
 
-3) Enable the bridge:
-   - Command Palette → “Copilot Bridge: Enable”
-   - Or set in settings: bridge.enabled = true
-   - “Copilot Bridge: Status” shows the bound address/port and token requirement
+Steps (dev run):
 
-Optional: Packaging a VSIX
-- You can package with vsce (not included):
-  npm i -g @vscode/vsce
-  vsce package
-- Then install the generated .vsix via “Extensions: Install from VSIX…”
-## Enabling the Language Model API (if required)
+1. Install and compile
 
-If your VS Code build requires enabling proposed APIs for the Language Model API, start with:
-### Models and Selection
+```bash
+npm install
+npm run compile
+```
 
-- The bridge lists available GitHub Copilot chat models using the VS Code Language Model API. Example:
-  curl http://127.0.0.1:&lt;port&gt;/v1/models
-  → { "data": [ { "id": "gpt-4o-copilot", ... }, ... ] }
+1. Press F5 in VS Code to launch an Extension Development Host
 
-- To target a specific model for inference, set the "model" field in your POST body. The bridge accepts:
-  - IDs returned by /v1/models (e.g., "gpt-4o-copilot")
-  - A Copilot family name (e.g., "gpt-4o")
-  - "copilot" to allow default selection
+1. In the Dev Host, enable the bridge
 
-Examples:
+- Command Palette → “Copilot Bridge: Enable”
+- Or set setting bridge.enabled = true
+
+1. Check status
+
+- Command Palette → “Copilot Bridge: Status” (shows bound address/port and whether a token is required)
+
+Optional: package a VSIX
+
+```bash
+npm run package
+```
+Then install the generated .vsix via “Extensions: Install from VSIX…”.
+
+## Use it
+
+Replace PORT with what “Copilot Bridge: Status” shows.
+
+- List models
+
+```bash
+curl http://127.0.0.1:$PORT/v1/models
+```
+
+- Stream a completion
+
+```bash
 curl -N -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o-copilot","messages":[{"role":"user","content":"hello"}]}' \
-  http://127.0.0.1:&lt;port&gt;/v1/chat/completions
+  http://127.0.0.1:$PORT/v1/chat/completions
+```
 
-curl -N -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}' \
-  http://127.0.0.1:&lt;port&gt;/v1/chat/completions
+- Non-streaming
 
-- If a requested model is unavailable, the bridge returns:
-  404 with { "error": { "code": "model_not_found", "reason": "not_found" } }.
-- Stable VS Code: `code --enable-proposed-api thinkability.copilot-bridge`
-- VS Code Insiders or Extension Development Host (F5) also works.
+```bash
+curl -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o-copilot","stream":false,"messages":[{"role":"user","content":"hello"}]}' \
+  http://127.0.0.1:$PORT/v1/chat/completions
+```
 
-When the API is not available, the Output (“Copilot Bridge”) will show:
-“VS Code Language Model API not available; update VS Code or enable proposed API.”
+Tip: You can also pass a family like "gpt-4o" as model. If unavailable you’ll get 404 with code model_not_found.
 
-## Troubleshooting
+### Using OpenAI SDK (Node.js)
 
-- /healthz shows `copilot: "unavailable"` with a `reason`:
-  - `missing_language_model_api`: Language Model API not available
-  - `copilot_model_unavailable`: No Copilot models selectable
-  - `consent_required`: User consent/sign-in required for Copilot models
-  - `rate_limited`: Provider throttling
-  - `not_found`: Requested model not found
-  - `copilot_unavailable`: Other provider errors
-- POST /v1/chat/completions returns 503 with the same `reason` codes.
+Point your client to the bridge and use your token (if set) as apiKey.
 
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: `http://127.0.0.1:${process.env.PORT}/v1`,
+  apiKey: process.env.BRIDGE_TOKEN || "not-used-when-empty",
+});
+
+const rsp = await client.chat.completions.create({
+  model: "gpt-4o-copilot",
+  messages: [{ role: "user", content: "hello" }],
+  stream: false,
+});
+console.log(rsp.choices[0].message?.content);
+```
+
+## How it works
+
+The extension uses VS Code’s Language Model API to select a GitHub Copilot chat model and forward your conversation. Messages are normalized to preserve the last system prompt and the most recent user/assistant turns (configurable window). Responses are streamed back via SSE or returned as a single JSON payload.
 
 ## Configuration (bridge.*)
 
-- bridge.enabled (boolean; default false): auto-start on VS Code startup
-- bridge.host (string; default "127.0.0.1"): bind address (keep on loopback)
-- bridge.port (number; default 0): 0 = ephemeral port
-- bridge.token (string; default ""): optional bearer token; empty disables auth
-- bridge.historyWindow (number; default 3): number of user/assistant turns to keep
-- bridge.maxConcurrent (number; default 1): max concurrent chat requests; excess → 429
-## Viewing logs
+Settings live under “Copilot Bridge” in VS Code settings:
 
-To see verbose logs:
-1) Enable: Settings → search “Copilot Bridge” → enable “bridge.verbose”
-2) Open: View → Output → select “Copilot Bridge” in the dropdown
-3) Trigger a request (e.g., curl /v1/chat/completions). You’ll see:
-   - HTTP request lines (method/path)
-   - Model selection attempts (“Copilot model selected.”)
-   - SSE lifecycle (“SSE start …”, “SSE end …”)
-   - Health checks (best-effort model check when verbose is on)
-   - API diagnostics (e.g., missing Language Model API)
-- bridge.verbose (boolean; default false): verbose logs to “Copilot Bridge” output channel
+| Setting | Default | Description |
+|---|---|---|
+| bridge.enabled | false | Start the bridge automatically when VS Code launches. |
+| bridge.host | 127.0.0.1 | Bind address. Keep on loopback for safety. |
+| bridge.port | 0 | Port for the HTTP server. 0 picks an ephemeral port. |
+| bridge.token | "" | Optional bearer token. If set, requests must include `Authorization: Bearer <token>`. |
+| bridge.historyWindow | 3 | Number of user/assistant turns kept (system message is tracked separately). |
+| bridge.maxConcurrent | 1 | Maximum concurrent /v1/chat/completions; excess return 429. |
+| bridge.verbose | false | Verbose logs in the “Copilot Bridge” Output channel. |
 
-## Manual Testing (curl)
+Status bar: Shows availability and bound address (e.g., “Copilot Bridge: OK @ 127.0.0.1:12345”).
 
-Replace <port> with the port shown in “Copilot Bridge: Status”.
+## Endpoints
 
-Health:
-curl http://127.0.0.1:<port>/healthz
+### GET /healthz
 
-Models:
-curl http://127.0.0.1:<port>/v1/models
+Returns `{ ok: true, copilot: "ok" | "unavailable", reason?: string, version: <vscode.version> }`.
 
-Streaming completion:
-curl -N -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o-copilot","stream":true,"messages":[{"role":"user","content":"hello"}]}' \
-  http://127.0.0.1:<port>/v1/chat/completions
+### GET /v1/models
 
-Non-stream:
-curl -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o-copilot","stream":false,"messages":[{"role":"user","content":"hello"}]}' \
-  http://127.0.0.1:<port>/v1/chat/completions
+Returns `{ data: [{ id, object: "model", owned_by: "vscode-bridge" }] }`.
 
-Auth (when bridge.token is set):
-- Missing/incorrect Authorization: Bearer <token> → 401
+### POST /v1/chat/completions
 
-Copilot unavailable:
-- Sign out of GitHub Copilot; /healthz shows unavailable; POST returns 503 envelope
+OpenAI-style body with `messages` and optional `model` and `stream`. Streaming uses SSE with `data: { ... }` events and a final `data: [DONE]`.
 
-Concurrency:
-- Fire 2+ concurrent requests; above bridge.maxConcurrent → 429 rate_limit_error
+Accepted model values:
 
-## Notes
+- IDs from /v1/models (e.g., `gpt-4o-copilot`)
+- Copilot family names (e.g., `gpt-4o`)
+- `copilot` to allow default selection
 
-- Desktop-only, in-process. No VS Code Server dependency.
-- Single-user, local loopback. Do not expose to remote interfaces.
-- Non-goals: tools/function calling emulation, workspace file I/O, multi-tenant proxying.
+Common errors:
+
+- 401 unauthorized when token is set but header is missing/incorrect
+- 404 model_not_found when the requested family/ID isn’t available
+- 429 rate_limit_exceeded when above bridge.maxConcurrent
+- 503 copilot_unavailable when the Language Model API or Copilot model isn’t available
+
+## Logs and diagnostics
+
+To view logs:
+
+1. Enable “bridge.verbose” (optional)
+1. View → Output → “Copilot Bridge”
+1. Trigger requests to see HTTP lines, model selection, SSE lifecycle, and health messages
+
+If the Language Model API is missing or your VS Code build doesn’t support it, you’ll see a message in the Output channel. Use a recent VS Code build and make sure GitHub Copilot is signed in.
+
+## Security notes
+
+- Binds to 127.0.0.1 by default. Do not expose to remote interfaces.
+- Set `bridge.token` to require `Authorization: Bearer <token>` on every request.
+- Single-user, local process; intended for local tooling and experiments.
+
+## Troubleshooting
+
+The `/healthz` endpoint may report `copilot: "unavailable"` for reasons like:
+
+- missing_language_model_api — VS Code API not available
+- copilot_model_unavailable — No Copilot models selectable
+- not_found — Requested model/family not found
+- consent_required, rate_limited, copilot_unavailable — provider-specific or transient issues
+
+POST /v1/chat/completions returns 503 with similar reason codes when Copilot isn’t usable.
 
 ## Development
 
-- Build: npm run compile
-- Watch: npm run watch
-- Main: src/extension.ts
-- Note: Previously used Chat API shims are no longer needed; the bridge now uses the Language Model API.
+- Build: `npm run compile`
+- Watch: `npm run watch`
+- Entry point: `src/extension.ts`
+
+## License
+
+Apache-2.0

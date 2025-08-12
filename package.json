@@ -1,12 +1,20 @@
 {
+  "private": false,
+  "icon": "images/icon.png",
   "name": "copilot-bridge",
   "displayName": "Copilot Bridge",
-  "description": "Local OpenAI-compatible chat endpoint bridging to GitHub Copilot via the VS Code Language Model API.",
-  "version": "0.1.5",
+  "description": "Local OpenAI-compatible chat endpoint (inference) bridging to GitHub Copilot via the VS Code Language Model API.",
+  "version": "0.2.0",
   "publisher": "thinkability",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/larsbaunwall/vscode-copilot-bridge.git"
+  },
+  "author": "larsbaunwall",
   "engines": {
     "vscode": "^1.90.0"
   },
+  "license": "Apache License 2.0",
   "extensionKind": [
     "ui"
   ],
@@ -81,7 +89,8 @@
   "scripts": {
     "compile": "tsc -p .",
     "watch": "tsc -w -p .",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "npm run compile",
+    "package": "npx vsce package"
   },
   "dependencies": {
     "polka": "^0.5.2"
