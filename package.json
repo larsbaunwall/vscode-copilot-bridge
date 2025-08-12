@@ -19,9 +19,18 @@
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      { "command": "bridge.enable", "title": "Copilot Bridge: Enable" },
-      { "command": "bridge.disable", "title": "Copilot Bridge: Disable" },
-      { "command": "bridge.status", "title": "Copilot Bridge: Status" }
+      {
+        "command": "bridge.enable",
+        "title": "Copilot Bridge: Enable"
+      },
+      {
+        "command": "bridge.disable",
+        "title": "Copilot Bridge: Disable"
+      },
+      {
+        "command": "bridge.status",
+        "title": "Copilot Bridge: Status"
+      }
     ],
     "configuration": {
       "title": "Copilot Bridge",
@@ -74,6 +83,7 @@
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.6.0",
     "typescript": "^5.4.0"
   }
 }
