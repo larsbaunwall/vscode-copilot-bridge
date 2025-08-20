@@ -7,6 +7,8 @@
     "rootDir": "src",
     "strict": true,
     "sourceMap": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "types": ["node", "vscode"]
   },
   "include": ["src/**/*.ts"]
