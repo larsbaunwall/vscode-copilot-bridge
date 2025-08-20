@@ -12,13 +12,14 @@ export interface BridgeConfig {
 
 export const getBridgeConfig = (): BridgeConfig => {
   const cfg = vscode.workspace.getConfiguration('bridge');
-  return {
-    enabled: cfg.get<boolean>('enabled') ?? false,
-    host: cfg.get<string>('host') ?? '127.0.0.1',
-    port: cfg.get<number>('port') ?? 0,
-    token: (cfg.get<string>('token') ?? '').trim(),
-    historyWindow: cfg.get<number>('historyWindow') ?? 3,
-    verbose: cfg.get<boolean>('verbose') ?? false,
-    maxConcurrent: cfg.get<number>('maxConcurrent') ?? 1,
-  };
+  const resolved = {
+    enabled: cfg.get('enabled', false),
+    host: cfg.get('host', '127.0.0.1'),
+    port: cfg.get('port', 0),
+    token: cfg.get('token', '').trim(),
+    historyWindow: cfg.get('historyWindow', 3),
+    verbose: cfg.get('verbose', false),
+    maxConcurrent: cfg.get('maxConcurrent', 1),
+  } satisfies BridgeConfig;
+  return resolved;
 };

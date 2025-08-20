@@ -1,5 +1,5 @@
-const polka = require('polka');
-import type { Server } from 'http';
+import polka from 'polka';
+import type { Server, IncomingMessage, ServerResponse } from 'http';
 import { getBridgeConfig } from '../config';
 import { state } from '../state';
 import { isAuthorized } from './auth';
@@ -8,16 +8,30 @@ import { handleModelsRequest } from './routes/models';
 import { handleChatCompletion } from './routes/chat';
 import { writeErrorResponse } from './utils';
 import { ensureOutput, verbose } from '../log';
-import { updateStatusAfterStart } from '../status';
+import { updateStatus } from '../status';
 
 export const startServer = async (): Promise<void> => {
   if (state.server) return;
   const config = getBridgeConfig();
   ensureOutput();
 
-  const app = polka();
+  const app = polka({
+    onError: (err, req, res) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      verbose(`HTTP error: ${msg}`);
+      if (!res.headersSent) {
+        writeErrorResponse(res, 500, msg || 'internal_error', 'server_error', 'internal_error');
+      } else {
+        try { res.end(); } catch {/* ignore */}
+      }
+    },
+    onNoMatch: (_req, res) => {
+      writeErrorResponse(res, 404, 'not found', 'invalid_request_error', 'route_not_found');
+    },
+  });
 
-  app.use((req: any, res: any, next: any) => {
+  // Logging + auth middleware
+  app.use((req: IncomingMessage & { method?: string; url?: string }, res: ServerResponse, next: () => void) => {
     verbose(`HTTP ${req.method} ${req.url}`);
     if (!isAuthorized(req, config.token)) {
       writeErrorResponse(res, 401, 'unauthorized', 'invalid_request_error', 'unauthorized');
@@ -26,15 +40,15 @@ export const startServer = async (): Promise<void> => {
     next();
   });
 
-  app.get('/healthz', async (_req: any, res: any) => {
+  app.get('/health', async (_req: IncomingMessage, res: ServerResponse) => {
     await handleHealthCheck(res, config.verbose);
   });
 
-  app.get('/v1/models', async (_req: any, res: any) => {
+  app.get('/v1/models', async (_req: IncomingMessage, res: ServerResponse) => {
     await handleModelsRequest(res);
   });
 
-  app.post('/v1/chat/completions', async (req: any, res: any) => {
+  app.post('/v1/chat/completions', async (req: IncomingMessage, res: ServerResponse) => {
     if (state.activeRequests >= config.maxConcurrent) {
       res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' });
       res.end(JSON.stringify({
@@ -49,36 +63,25 @@ export const startServer = async (): Promise<void> => {
     }
     try {
       await handleChatCompletion(req, res);
-    } catch (e: any) {
+    } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       writeErrorResponse(res, 500, msg || 'internal_error', 'server_error', 'internal_error');
     }
   });
 
   await new Promise<void>((resolve, reject) => {
-    let resolved = false;
     try {
       app.listen(config.port, config.host, () => {
-        const srv: Server | undefined = app.server;
-        if (!srv) {
-          reject(new Error('Server failed to start'));
-          return;
-        }
+        const srv = app.server as Server | undefined;
+        if (!srv) return reject(new Error('Server failed to start'));
         state.server = srv;
-        updateStatusAfterStart();
-        resolved = true;
+        updateStatus('start');
         resolve();
       });
+      const srv = app.server as Server | undefined;
+      srv?.on('error', reject);
     } catch (err) {
       reject(err);
-      return;
-    }
-    const srv: Server | undefined = app.server;
-    if (srv && typeof (srv as any).on === 'function') {
-      srv.on('error', reject);
-    }
-    if (!resolved && app.server && typeof (app.server as any).on === 'function') {
-      app.server.on('error', reject);
     }
   });
 };

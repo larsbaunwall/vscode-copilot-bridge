@@ -1,7 +1,8 @@
 import { writeJson } from '../utils';
 import { listCopilotModels } from '../../models';
+import type { ServerResponse } from 'http';
 
-export const handleModelsRequest = async (res: any): Promise<void> => {
+export const handleModelsRequest = async (res: ServerResponse): Promise<void> => {
   try {
     const models = await listCopilotModels();
     writeJson(res, 200, {
@@ -13,13 +14,7 @@ export const handleModelsRequest = async (res: any): Promise<void> => {
     });
   } catch {
     writeJson(res, 200, {
-      data: [
-        {
-          id: 'copilot',
-          object: 'model',
-          owned_by: 'vscode-bridge',
-        },
-      ],
+      data: [],
     });
   }
 };

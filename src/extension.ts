@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { AddressInfo } from 'net';
 import { getBridgeConfig } from './config';
 import { state } from './state';
 import { ensureOutput, verbose } from './log';
@@ -9,9 +10,9 @@ import { getModel } from './models';
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   ensureOutput();
   ensureStatusBar();
-  state.statusItem!.text = 'Copilot Bridge: Disabled';
-  state.statusItem!.show();
-  ctx.subscriptions.push(state.statusItem!, state.output!);
+  state.statusBarItem!.text = 'Copilot Bridge: Disabled';
+  state.statusBarItem!.show();
+  ctx.subscriptions.push(state.statusBarItem!, state.output!);
 
   ctx.subscriptions.push(vscode.commands.registerCommand('bridge.enable', async () => {
     await startBridge();
@@ -24,7 +25,9 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   
   ctx.subscriptions.push(vscode.commands.registerCommand('bridge.status', async () => {
     const info = state.server?.address();
-    const bound = info && typeof info === 'object' ? `${(info as any).address}:${(info as any).port}` : 'n/a';
+    const bound = (info && typeof info === 'object' && 'address' in info && 'port' in info)
+      ? `${(info as AddressInfo).address}:${(info as AddressInfo).port}`
+      : 'n/a';
     const config = getBridgeConfig();
     const hasToken = config.token.length > 0;
     vscode.window.showInformationMessage(
@@ -47,10 +50,14 @@ async function startBridge(): Promise<void> {
   state.running = true;
   try {
     await startServer();
-  } catch (error: any) {
+  } catch (error) {
     state.running = false;
-    state.statusItem!.text = 'Copilot Bridge: Error';
-    verbose(error?.stack || String(error));
+    state.statusBarItem!.text = 'Copilot Bridge: Error';
+    if (error instanceof Error) {
+      verbose(error.stack || error.message);
+    } else {
+      verbose(String(error));
+    }
     throw error;
   }
 }
@@ -63,8 +70,8 @@ async function stopBridge(): Promise<void> {
   } finally {
     state.server = undefined;
     state.modelCache = undefined;
-    if (state.statusItem) {
-      state.statusItem.text = 'Copilot Bridge: Disabled';
+    if (state.statusBarItem) {
+      state.statusBarItem.text = 'Copilot Bridge: Disabled';
     }
     verbose('Stopped');
   }
