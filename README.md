@@ -17,7 +17,7 @@ Endpoints exposed:
 
 - POST /v1/chat/completions — OpenAI-style chat API (streaming by default)
 - GET  /v1/models — lists available Copilot models
-- GET  /healthz — health + VS Code version
+- GET  /health — health + VS Code version
 
 The extension will autostart and requires VS Code to be running.
 
@@ -135,7 +135,7 @@ Status bar: Shows availability and bound address (e.g., “Copilot Bridge: OK @ 
 
 ## Endpoints
 
-### GET /healthz
+### GET /health
 
 Returns `{ ok: true, copilot: "ok" | "unavailable", reason?: string, version: <vscode.version> }`.
 
@@ -178,7 +178,7 @@ If the Language Model API is missing or your VS Code build doesn’t support it,
 
 ## Troubleshooting
 
-The `/healthz` endpoint may report `copilot: "unavailable"` for reasons like:
+The `/health` endpoint may report `copilot: "unavailable"` for reasons like:
 
 - missing_language_model_api — VS Code API not available
 - copilot_model_unavailable — No Copilot models selectable
