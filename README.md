@@ -21,6 +21,15 @@ Endpoints exposed:
 
 The extension will autostart and requires VS Code to be running.
 
+## Changelog
+
+- **v1.0.0** — Modular architecture refactor with service layer, OpenAI type definitions, and tool calling support
+- **v0.2.2** — Polka HTTP server integration and model family selection improvements  
+- **v0.1.5** — Server lifecycle fixes and improved error handling
+- **v0.1.4** — Dynamic Copilot model listing via Language Model API
+- **v0.1.3** — Migration to VS Code Language Model API with robust guards and reason codes
+- **v0.1.0** — Initial OpenAI-compatible HTTP bridge to GitHub Copilot with SSE streaming
+
 ## Why this?
 
 I was looking for a Github Copilot CLI experience along the likes of OpenAI Codex and Claude Code, but found a bit underwhelming support for that in the current offering. I thought this could be a stepping stone to a proper CLI (or agentic orchestration) built on-top of Github Copilot. While we await the real thing.
