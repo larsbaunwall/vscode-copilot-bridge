@@ -65,7 +65,8 @@ export const handleModelSelectionError = (error: unknown, family?: string): void
 
 export const listCopilotModels = async (): Promise<string[]> => {
   try {
-    const models = await selectChatModels();
+    // Filter for Copilot models only, consistent with getModel behavior
+    const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
     const ids = models.map((m: vscode.LanguageModelChat) => {
       const normalized = m.family || m.id || m.name || 'copilot';
       return `${normalized}`;

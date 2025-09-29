@@ -1,8 +1,12 @@
 import * as vscode from 'vscode';
 
 export interface ChatMessage {
-  readonly role: 'system' | 'user' | 'assistant';
-  readonly content: string | MessageContent[];
+  readonly role: 'system' | 'user' | 'assistant' | 'tool';
+  readonly content?: string | MessageContent[] | null;
+  readonly name?: string;
+  readonly tool_calls?: ToolCall[];
+  readonly tool_call_id?: string;
+  readonly function_call?: FunctionCall;
 }
 
 export interface MessageContent {
@@ -11,22 +15,87 @@ export interface MessageContent {
   readonly [key: string]: unknown;
 }
 
+export interface ToolCall {
+  readonly id: string;
+  readonly type: 'function';
+  readonly function: FunctionCall;
+}
+
+export interface FunctionCall {
+  readonly name: string;
+  readonly arguments: string;
+}
+
+export interface Tool {
+  readonly type: 'function';
+  readonly function: ToolFunction;
+}
+
+export interface ToolFunction {
+  readonly name: string;
+  readonly description?: string;
+  readonly parameters?: object;
+}
+
 export interface ChatCompletionRequest {
   readonly model?: string;
   readonly messages: ChatMessage[];
   readonly stream?: boolean;
+  readonly tools?: Tool[];
+  readonly tool_choice?: 'none' | 'auto' | 'required' | { type: 'function'; function: { name: string } };
+  readonly parallel_tool_calls?: boolean;
+  readonly functions?: ToolFunction[]; // Deprecated, use tools instead
+  readonly function_call?: 'none' | 'auto' | { name: string }; // Deprecated, use tool_choice instead
+  readonly temperature?: number;
+  readonly top_p?: number;
+  readonly n?: number;
+  readonly stop?: string | string[];
+  readonly max_tokens?: number;
+  readonly max_completion_tokens?: number;
+  readonly presence_penalty?: number;
+  readonly frequency_penalty?: number;
+  readonly logit_bias?: Record<string, number>;
+  readonly logprobs?: boolean;
+  readonly top_logprobs?: number;
+  readonly user?: string;
+  readonly seed?: number;
+  readonly response_format?: {
+    readonly type: 'text' | 'json_object' | 'json_schema';
+    readonly json_schema?: {
+      readonly name: string;
+      readonly schema: object;
+      readonly strict?: boolean;
+    };
+  };
   readonly [key: string]: unknown;
 }
 
-const VALID_ROLES = ['system', 'user', 'assistant'] as const;
+const VALID_ROLES = ['system', 'user', 'assistant', 'tool'] as const;
 type Role = typeof VALID_ROLES[number];
 const isValidRole = (role: unknown): role is Role => typeof role === 'string' && VALID_ROLES.includes(role as Role);
 
 export const isChatMessage = (msg: unknown): msg is ChatMessage => {
   if (typeof msg !== 'object' || msg === null) return false;
   const candidate = msg as Record<string, unknown>;
-  if (!('role' in candidate) || !('content' in candidate)) return false;
-  return isValidRole(candidate.role) && candidate.content !== undefined && candidate.content !== null;
+  if (!('role' in candidate)) return false;
+  if (!isValidRole(candidate.role)) return false;
+  
+  // Tool messages require tool_call_id and content
+  if (candidate.role === 'tool') {
+    return typeof candidate.tool_call_id === 'string' && 
+           (typeof candidate.content === 'string' || candidate.content === null);
+  }
+  
+  // Assistant messages can have content and/or tool_calls/function_call
+  if (candidate.role === 'assistant') {
+    const hasContent = candidate.content !== undefined;
+    const hasToolCalls = Array.isArray(candidate.tool_calls);
+    const hasFunctionCall = typeof candidate.function_call === 'object' && candidate.function_call !== null;
+    return hasContent || hasToolCalls || hasFunctionCall;
+  }
+  
+  // System and user messages must have content
+  return candidate.content !== undefined && candidate.content !== null;
 };
 
 export const isChatCompletionRequest = (body: unknown): body is ChatCompletionRequest => {
@@ -35,6 +104,25 @@ export const isChatCompletionRequest = (body: unknown): body is ChatCompletionRe
   if (!('messages' in candidate)) return false;
   const messages = candidate.messages;
   return Array.isArray(messages) && messages.length > 0 && messages.every(isChatMessage);
+};
+
+// Convert OpenAI tools to VS Code Language Model tools
+export const convertOpenAIToolsToLM = (tools?: Tool[]): vscode.LanguageModelChatTool[] => {
+  if (!tools) return [];
+  return tools.map(tool => ({
+    name: tool.function.name,
+    description: tool.function.description || '',
+    inputSchema: tool.function.parameters
+  }));
+};
+
+// Convert deprecated functions to tools format
+export const convertFunctionsToTools = (functions?: ToolFunction[]): Tool[] => {
+  if (!functions) return [];
+  return functions.map(func => ({
+    type: 'function' as const,
+    function: func
+  }));
 };
 
 const toText = (content: unknown): string => {
