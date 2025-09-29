@@ -14,10 +14,21 @@ export const handleHealthCheck = async (res: ServerResponse, v: boolean): Promis
   const unavailableReason = state.modelCache
     ? undefined
     : (!hasLM ? 'missing_language_model_api' : (state.lastReason || 'copilot_model_unavailable'));
+  
   writeJson(res, 200, {
     ok: true,
+    status: 'operational',
     copilot: state.modelCache ? 'ok' : 'unavailable',
     reason: unavailableReason,
     version: vscode.version,
+    features: {
+      chat_completions: true,
+      streaming: true,
+      tool_calling: true,
+      function_calling: true, // deprecated but supported
+      models_list: true
+    },
+    active_requests: state.activeRequests,
+    model_attempted: state.modelAttempted
   });
 };

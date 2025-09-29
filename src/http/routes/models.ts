@@ -4,17 +4,29 @@ import type { ServerResponse } from 'http';
 
 export const handleModelsRequest = async (res: ServerResponse): Promise<void> => {
   try {
-    const models = await listCopilotModels();
+    const modelIds = await listCopilotModels();
+    const models = modelIds.map((id: string) => ({
+      id,
+      object: 'model',
+      created: Math.floor(Date.now() / 1000),
+      owned_by: 'copilot',
+      permission: [],
+      root: id,
+      parent: null,
+    }));
+
     writeJson(res, 200, {
-      data: models.map((id: string) => ({
-        id,
-        object: 'model',
-        owned_by: 'vscode-bridge',
-      })),
+      object: 'list',
+      data: models,
     });
-  } catch {
-    writeJson(res, 200, {
-      data: [],
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    writeJson(res, 500, {
+      error: {
+        message: msg || 'Failed to list models',
+        type: 'server_error',
+        code: 'internal_error'
+      }
     });
   }
 };
