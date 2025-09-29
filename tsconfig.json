@@ -9,6 +9,7 @@
     "sourceMap": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
     "types": ["node", "vscode"]
   },
   "include": ["src/**/*.ts"]
