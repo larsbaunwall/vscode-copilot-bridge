@@ -4,7 +4,7 @@
   "name": "copilot-bridge",
   "displayName": "Copilot Bridge",
   "description": "Local OpenAI-compatible chat endpoint (inference) bridging to GitHub Copilot via the VS Code Language Model API.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "thinkability",
   "repository": {
     "type": "git",
@@ -19,7 +19,7 @@
     "ui"
   ],
   "categories": [
-    "Other"
+    "AI"
   ],
   "activationEvents": [
     "onStartupFinished"
