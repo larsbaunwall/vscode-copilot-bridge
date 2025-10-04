@@ -6,7 +6,7 @@ import { isAuthorized } from './auth';
 import { handleHealthCheck } from './routes/health';
 import { handleModelsRequest } from './routes/models';
 import { handleChatCompletion } from './routes/chat';
-import { writeErrorResponse } from './utils';
+import { writeErrorResponse, writeNotFound, writeRateLimit, writeUnauthorized } from './utils';
 import { ensureOutput, verbose } from '../log';
 import { updateStatus } from '../status';
 
@@ -26,19 +26,31 @@ export const startServer = async (): Promise<void> => {
       }
     },
     onNoMatch: (_req, res) => {
-      writeErrorResponse(res, 404, 'not found', 'invalid_request_error', 'route_not_found');
+      writeNotFound(res);
     },
   });
 
-  // Logging + auth middleware
-  app.use((req: IncomingMessage & { method?: string; url?: string }, res: ServerResponse, next: () => void) => {
-    verbose(`HTTP ${req.method} ${req.url}`);
+  // Auth middleware - runs before all routes (except /health)
+  app.use((req, res, next) => {
+    const path = req.url ?? '/';
+    if (path === '/health') {
+      return next();
+    }
     if (!isAuthorized(req, config.token)) {
-      writeErrorResponse(res, 401, 'unauthorized', 'invalid_request_error', 'unauthorized');
+      writeUnauthorized(res);
       return;
     }
     next();
   });
+
+  // Verbose logging middleware
+    const cfg = getBridgeConfig();
+  if (cfg.verbose) {
+    app.use((req, res, next) => {
+      verbose(`${req.method} ${req.url}`);
+      next();
+    });
+  }
 
   app.get('/health', async (_req: IncomingMessage, res: ServerResponse) => {
     await handleHealthCheck(res, config.verbose);
@@ -49,18 +61,15 @@ export const startServer = async (): Promise<void> => {
   });
 
   app.post('/v1/chat/completions', async (req: IncomingMessage, res: ServerResponse) => {
+    // Rate limiting check
     if (state.activeRequests >= config.maxConcurrent) {
-      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' });
-      res.end(JSON.stringify({
-        error: {
-          message: 'too many requests',
-          type: 'rate_limit_error',
-          code: 'rate_limit_exceeded',
-        },
-      }));
-      verbose(`429 throttled (active=${state.activeRequests}, max=${config.maxConcurrent})`);
+      if (config.verbose) {
+        verbose(`429 throttled (active=${state.activeRequests}, max=${config.maxConcurrent})`);
+      }
+      writeRateLimit(res);
       return;
     }
+    
     try {
       await handleChatCompletion(req, res);
     } catch (e) {

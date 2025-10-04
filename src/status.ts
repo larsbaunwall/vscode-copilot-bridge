@@ -23,9 +23,9 @@ export const updateStatus = (kind: BridgeStatusKind): void => {
 
   switch (kind) {
     case 'start': {
-  const availability = state.modelCache ? 'OK' : (state.modelAttempted ? 'Unavailable' : 'Pending');
-  state.statusBarItem.text = `Copilot Bridge: ${availability} @ ${shown}`;
-  info(`Started at http://${shown} | Copilot: ${state.modelCache ? 'ok' : (state.modelAttempted ? 'unavailable' : 'pending')}`);
+      const availability = state.modelCache ? 'OK' : (state.modelAttempted ? 'Unavailable' : 'Pending');
+      state.statusBarItem.text = `Copilot Bridge: ${availability} @ ${shown}`;
+      info(`Started at http://${shown} | Copilot: ${state.modelCache ? 'ok' : (state.modelAttempted ? 'unavailable' : 'pending')}`);
       break;
     }
     case 'error':

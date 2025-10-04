@@ -13,6 +13,7 @@ applyTo: '**/*.ts'
 - Prefer readable, explicit solutions over clever shortcuts.
 - Extend current abstractions before inventing new ones.
 - Prioritize maintainability and clarity, short methods and classes, clean code.
+- Keep edits aligned with [AGENTS.md](../../AGENTS.md) and `.github/copilot-instructions.md`.
 
 ## Programming Language: TypeScript
 
@@ -40,6 +41,11 @@ applyTo: '**/*.ts'
 - Use pure ES modules; never emit `require`, `module.exports`, or CommonJS helpers.
 - Rely on the project's build, lint, and test scripts unless asked otherwise.
 - Note design trade-offs when intent is not obvious.
+- Reuse the HTTP helpers in `src/http/utils.ts` (`writeUnauthorized`, `writeNotFound`, `writeRateLimit`, `writeErrorResponse`) instead of writing ad-hoc JSON responses.
+- Preserve the SSE contract in `src/http/routes/chat.ts`: send the role chunk first, follow with `data: { ... }` payloads, and always terminate with `data: [DONE]`.
+- When streaming, call `res.socket?.setNoDelay(true)` before emitting chunks to avoid latency regressions.
+- Honor the concurrency guard (`state.activeRequests`) and return early 429 responses via `writeRateLimit` when limits are exceeded.
+- Communicate limitations of the VS Code LM API, e.g., `tool_choice: "required"` behaving like `"auto"` and lack of `parallel_tool_calls` support.
 
 ## Project Organization
 
@@ -75,6 +81,7 @@ applyTo: '**/*.ts'
 - Send errors through the project's logging/telemetry utilities.
 - Surface user-facing errors via the repository's notification pattern.
 - Debounce configuration-driven updates and dispose resources deterministically.
+- Prefer the pre-serialized error helpers for fast paths and document any new reason codes in README + status handlers.
 
 ## Architecture & Patterns
 
@@ -126,6 +133,8 @@ applyTo: '**/*.ts'
 - Defer expensive work until users need it.
 - Batch or debounce high-frequency events to reduce thrash.
 - Track resource lifetimes to prevent leaks.
+- Avoid repeated configuration reads in hot paths; cache settings when practical.
+- Maintain streaming code paths without buffering entire responses; only accumulate when `stream: false`.
 
 ## Documentation & Comments
 

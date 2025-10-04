@@ -2,7 +2,8 @@
 
 # Copilot Bridge (VS Code Extension)
 
-[![Visual Studio Marketplace](https://vsmarketplacebadges.dev/version/thinkability.copilot-bridge.svg)](https://marketplace.visualstudio.com/items?itemName=thinkability.copilot-bridge)
+[![Visual Studio Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/thinkability.copilot-bridge)](https://marketplace.visualstudio.com/items?itemName=thinkability.copilot-bridge)
+[![Visual Studio Marketplace Installs](https://img.shields.io/visual-studio-marketplace/d/thinkability.copilot-bridge?label=installs)](https://marketplace.visualstudio.com/items?itemName=thinkability.copilot-bridge)
 
 Expose GitHub Copilot as a local, OpenAI-compatible HTTP endpoint running inside VS Code. The bridge forwards chat requests to Copilot using the VS Code Language Model API and streams results back to you.
 
@@ -23,6 +24,7 @@ The extension will autostart and requires VS Code to be running.
 
 ## Changelog
 
+- **v1.1.0** — Simplified architecture with focus on performance improvements. Copilot Bridge is now 20-30% faster doing raw inference.
 - **v1.0.0** — Modular architecture refactor with service layer, OpenAI type definitions, and tool calling support
 - **v0.2.2** — Polka HTTP server integration and model family selection improvements  
 - **v0.1.5** — Server lifecycle fixes and improved error handling

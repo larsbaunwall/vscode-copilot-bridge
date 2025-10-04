@@ -152,8 +152,9 @@ export const normalizeMessagesLM = (
   ).slice(-histWindow * 3); // Increased window to account for tool messages
 
   const lmMsg = (vscode as unknown as { LanguageModelChatMessage?: typeof vscode.LanguageModelChatMessage }).LanguageModelChatMessage;
-  const UserFactory = lmMsg?.User;
-  const AssistantFactory = lmMsg?.Assistant;
+  const userFactory = lmMsg?.User;
+  const assistantFactory = lmMsg?.Assistant;
+  const hasFactories = Boolean(userFactory && assistantFactory);
 
   const result: (vscode.LanguageModelChatMessage | { role: 'user' | 'assistant'; content: string })[] = [];
   let firstUserSeen = false;
@@ -165,7 +166,7 @@ export const normalizeMessagesLM = (
         text = `[SYSTEM]\n${toText(systemMessage.content)}\n\n[DIALOG]\nuser: ${text}`;
         firstUserSeen = true;
       }
-      result.push(UserFactory ? UserFactory(text) : { role: 'user', content: text });
+      result.push(userFactory ? userFactory(text) : { role: 'user', content: text });
     } else if (m.role === 'assistant') {
       // For assistant messages, we need to handle both content and tool calls
       let text = '';
@@ -192,20 +193,20 @@ export const normalizeMessagesLM = (
         text = `[FUNCTION_CALL] ${m.function_call.name}(${m.function_call.arguments})`;
       }
       
-      result.push(AssistantFactory ? AssistantFactory(text) : { role: 'assistant', content: text });
+      result.push(assistantFactory ? assistantFactory(text) : { role: 'assistant', content: text });
     } else if (m.role === 'tool') {
       // Tool messages should be converted to user messages with tool result context
       const toolResult = `[TOOL_RESULT:${m.tool_call_id}] ${toText(m.content)}`;
-      result.push(UserFactory ? UserFactory(toolResult) : { role: 'user', content: toolResult });
+      result.push(userFactory ? userFactory(toolResult) : { role: 'user', content: toolResult });
     }
   }
 
   if (!firstUserSeen && systemMessage) {
     const text = `[SYSTEM]\n${toText(systemMessage.content)}`;
-    result.unshift(UserFactory ? UserFactory(text) : { role: 'user', content: text });
+    result.unshift(userFactory ? userFactory(text) : { role: 'user', content: text });
   }
 
-  if (result.length === 0) result.push(UserFactory ? UserFactory('') : { role: 'user', content: '' });
+  if (result.length === 0) result.push(userFactory ? userFactory('') : { role: 'user', content: '' });
 
   return result;
 };

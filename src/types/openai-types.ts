@@ -1,6 +1,3 @@
-import type * as vscode from 'vscode';
-import type { Tool } from '../messages';
-
 /**
  * OpenAI API compatible types for request and response handling
  */
@@ -56,26 +53,4 @@ export interface ProcessedResponseData {
   readonly content: string;
   readonly toolCalls: OpenAIToolCall[];
   readonly finishReason: OpenAIChoice['finish_reason'];
-}
-
-/**
- * Validates that the request model is available and properly configured
- */
-export interface ModelValidationResult {
-  readonly isValid: boolean;
-  readonly statusCode?: number;
-  readonly errorType?: string;
-  readonly errorCode?: string;
-  readonly reason?: string;
-}
-
-/**
- * Consolidated request processing context for chat completions
- */
-export interface RequestProcessingContext {
-  readonly model: vscode.LanguageModelChat;
-  readonly lmMessages: vscode.LanguageModelChatMessage[];
-  readonly lmTools: vscode.LanguageModelChatTool[];
-  readonly requestOptions: vscode.LanguageModelChatRequestOptions;
-  readonly mergedTools: Tool[];
 }

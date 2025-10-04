@@ -37,12 +37,12 @@ The server is **local only** (loopback host by default) and is not meant for mul
 2. **Imports**: All imports at file top. No inline `import('module')` types.
 3. **ES Module Style**: Use `import` syntax (even though `commonjs` output). No `require` in source except in isolated legacy shims (currently none).
 4. **Polka Typings**: The custom declaration in `src/types/polka.d.ts` must stay minimal but strongly typed. Extend only when you need new surface.
-5. **Error Handling**: Use central `onError` (`server.ts`). Avoid swallowing errors; bubble or log via `verbose`.
+5. **Error Handling**: Use central `onError` (`server.ts`). Avoid swallowing errors; bubble or log via `verbose`. Prefer the pre-serialized helpers in `src/http/utils.ts` (`writeUnauthorized`, `writeNotFound`, `writeRateLimit`, `writeErrorResponse`) instead of hand-crafted JSON bodies.
 6. **Logging**: Use `verbose()` for debug (guarded by config), `info()` for one‑time start messages, `error()` sparingly (currently not widely used—add only if user‑facing severity).
 7. **Status Bar**: Use `updateStatus(kind)` with kinds: `start | error | success`. Initial pending state relies on `state.modelAttempted`.
-8. **Model Selection**: Always feature‑detect the LM API (`hasLMApi`). Return early on missing API with clear `state.lastReason` codes.
+8. **Model Selection**: Always feature-detect the LM API (`hasLMApi`). Return early on missing API with clear `state.lastReason` codes.
 9. **Endpoint Stability**: Public paths (`/health`, `/v1/models`, `/v1/chat/completions`). Changes require README updates and semantic version bump.
-10. **Streaming**: SSE contract: multiple `data: {chunk}` events + final `data: [DONE]`. Preserve this shape.
+10. **Streaming & Tool Calling**: SSE contract: multiple `data: {chunk}` events + final `data: [DONE]`. Preserve this shape. Tool call chunks must emit `delta.tool_calls` entries encoded as JSON; arguments may arrive as incremental strings, so downstream clients should replace rather than append. The bridge treats `tool_choice: "required"` the same as `"auto"` and ignores `parallel_tool_calls` because the VS Code LM API lacks those controls—communicate this limitation in README and responses if behaviour changes in future.
 
 ---
 
@@ -111,6 +111,7 @@ Avoid high‑volume logs in hot loops. Guard truly verbose details behind featur
 
 - Concurrency limit enforced in `/v1/chat/completions` before model call; maintain early 429 path.
 - Streaming is async iteration; avoid buffering entire response unless `stream: false`.
+- Disable Nagle’s algorithm on streaming sockets with `socket.setNoDelay(true)` before writing SSE payloads.
 - Do not introduce global locks; keep per‑request ephemeral state.
 
 ---
