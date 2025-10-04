@@ -195,6 +195,10 @@ If Copilot or the Language Model API isn’t available, the output channel expla
 - **v0.1.3** — Migration to the Language Model API with robust guards and reason codes.
 - **v0.1.0** — Initial OpenAI-compatible bridge with SSE streaming.
 
+## 🤝 Share ideas & contribute
+
+Have an idea, found a bug, or thought of a new feature that should be supported next? Please open a [new issue](https://github.com/larsbaunwall/vscode-copilot-bridge/issues) so we can track it together.
+
 ## 📄 License
 
 Apache-2.0
