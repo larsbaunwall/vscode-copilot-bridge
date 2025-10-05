@@ -7,6 +7,8 @@ import { verbose } from '../../log';
 
 interface HealthResponse {
   readonly ok: boolean;
+  readonly api: string;
+  readonly notes: string;
   readonly status: string;
   readonly copilot: string;
   readonly reason?: string;
@@ -27,7 +29,7 @@ export const handleHealthCheck = async (res: ServerResponse, v: boolean): Promis
   
   // Attempt model resolution if cache is empty and verbose logging is enabled
   if (!state.modelCache && v) {
-    verbose(`Healthz: model=${state.modelCache ? 'present' : 'missing'} lmApi=${hasLM ? 'ok' : 'missing'}`);
+    verbose(`Health: model=${state.modelCache ? 'present' : 'missing'} lmApi=${hasLM ? 'ok' : 'missing'}`);
     try {
       await getModel();
     } catch (e) {
@@ -42,6 +44,8 @@ export const handleHealthCheck = async (res: ServerResponse, v: boolean): Promis
   
   const response: HealthResponse = {
     ok: true,
+    api: hasLM ? 'vscode.lm' : 'missing_language_model_api',
+    notes: "No direct Copilot endpoints; no token extraction",
     status: 'operational',
     copilot: state.modelCache ? 'ok' : 'unavailable',
     reason: unavailableReason,

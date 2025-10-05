@@ -9,6 +9,7 @@
 
 Copilot Bridge lets you access your personal Copilot session locally through an OpenAI-compatible interface — **without calling any private GitHub endpoints**. It’s designed for developers experimenting with AI agents, CLI tools, and custom integrations inside their own editor environment.
 
+> **API Surface:** Uses only the public VS Code **Language Model API** (`vscode.lm`) for model discovery and chat. No private Copilot endpoints, tokens, or protocol emulation.
 ---
 
 ## ✨ Key Features
@@ -136,7 +137,28 @@ The extension uses VS Code’s built-in Language Model API to select available C
 Requests are normalized and sent through VS Code itself, never directly to GitHub Copilot servers.  
 Responses stream back via SSE with concurrency controls for editor stability.
 
+
+### How it calls models (pseudocode)
+
+```ts
+import * as vscode from "vscode";
+
+const models = await vscode.lm.selectChatModels({
+  where: { vendor: "copilot", supports: { reasoning: true } }
+});
+const model = models[0] ?? (await vscode.lm.selectChatModels({}))[0];
+if (!model) throw new Error("No language models available (vscode.lm)");
+
+const stream = await model.sendRequest(
+  { kind: "chat", messages: [{ role: "user", content: "hello" }] },
+  { temperature: 0.2 }
+);
+
+// Stream chunks → SSE to localhost client; no private Copilot protocol used.
+```
+
 ---
+
 
 ## 🔧 Configuration
 
@@ -170,7 +192,7 @@ Responses stream back via SSE with concurrency controls for editor stability.
 
 - Loopback-only binding (non-configurable)  
 - Mandatory bearer token gating (requests rejected without the correct header)  
-- No persistent storage or telemetry  
+- **Telemetry:** none collected or transmitted.
 
 ---
 
@@ -199,3 +221,25 @@ Independent project — not affiliated with GitHub or Microsoft.
 For compliance or takedown inquiries, please open a GitHub issue.
 
 ---
+
+### ❓ FAQ
+
+#### Can I run this on a server?
+No. Copilot Bridge is designed for **localhost-only**, single-user, interactive use.  
+Running it on a shared host or exposing it over a network would violate its intended scope and could breach the Copilot terms.  
+The host is bound to `127.0.0.1` (non-configurable).
+
+#### Does it send any data to the author?
+No. The bridge never transmits telemetry, prompts, or responses to any external service.  
+All traffic stays on your machine and flows through VS Code’s built-in model interface.
+
+#### What happens if Copilot is unavailable?
+The `/health` endpoint will report a diagnostic reason such as `copilot_unavailable` or `missing_language_model_api`.  
+This means VS Code currently has no accessible models via `vscode.lm`. Once Copilot becomes available again, the bridge will resume automatically.
+
+#### Can I use non-Copilot models?
+Yes, if other providers register with `vscode.lm`. The bridge will detect any available chat-capable models and use the first suitable one it finds.
+
+#### How is this different from reverse-engineered Copilot proxies?
+Reverse-engineered proxies call private endpoints directly or reuse extracted tokens.  
+Copilot Bridge does neither—it communicates only through VS Code’s sanctioned **Language Model API**, keeping usage transparent and compliant.
