@@ -28,7 +28,7 @@ Copilot Bridge lets you access your personal Copilot session locally through an 
 - Uses **only** the public VS Code Language Models API.
 - Does **not** contact or emulate private GitHub Copilot endpoints.
 - Requires an active GitHub Copilot subscription.
-- Subject to [GitHub Terms of Service](https://docs.github.com/site-policy/github-terms/github-terms-of-service) and [Copilot Product Terms](https://docs.github.com/en/site-policy/github-terms/github-copilot-product-terms).
+- Subject to [GitHub Terms of Service](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service) and the [Github Acceptable Use Policy](https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies).
 - Intended for **personal, local experimentation** only.
 - No affiliation with GitHub or Microsoft.
 
