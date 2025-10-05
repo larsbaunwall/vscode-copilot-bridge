@@ -4,7 +4,7 @@
   "name": "copilot-bridge",
   "displayName": "Copilot Bridge",
   "description": "Local OpenAI-compatible chat endpoint (inference) bridging to GitHub Copilot via the VS Code Language Model API.",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "publisher": "thinkability",
   "repository": {
     "type": "git",
@@ -47,11 +47,6 @@
           "type": "boolean",
           "default": false,
           "description": "Start the Copilot Bridge automatically when VS Code starts."
-        },
-        "bridge.host": {
-          "type": "string",
-          "default": "127.0.0.1",
-          "description": "Bind address for the local HTTP server. For security, keep this on loopback."
         },
         "bridge.port": {
           "type": "number",

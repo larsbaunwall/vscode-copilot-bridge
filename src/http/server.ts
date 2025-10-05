@@ -44,8 +44,7 @@ export const startServer = async (): Promise<void> => {
   });
 
   // Verbose logging middleware
-    const cfg = getBridgeConfig();
-  if (cfg.verbose) {
+  if (config.verbose) {
     app.use((req, res, next) => {
       verbose(`${req.method} ${req.url}`);
       next();
