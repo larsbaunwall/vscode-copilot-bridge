@@ -9,8 +9,12 @@ let cachedAuthHeader = '';
  * Caches the full "Bearer <token>" header to optimize hot path.
  */
 export const isAuthorized = (req: IncomingMessage, token: string): boolean => {
-  if (!token) return true;
-  
+  if (!token) {
+    cachedToken = '';
+    cachedAuthHeader = '';
+    return false;
+  }
+
   // Update cache if token changed
   if (token !== cachedToken) {
     cachedToken = token;

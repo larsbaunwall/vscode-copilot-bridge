@@ -18,6 +18,14 @@ const UNAUTHORIZED_ERROR = JSON.stringify({
   },
 });
 
+const TOKEN_REQUIRED_ERROR = JSON.stringify({
+  error: {
+    message: 'auth token required',
+    type: 'invalid_request_error',
+    code: 'auth_token_required',
+  },
+});
+
 const NOT_FOUND_ERROR = JSON.stringify({
   error: {
     message: 'not found',
@@ -47,6 +55,11 @@ const RATE_LIMIT_HEADERS = {
 export const writeUnauthorized = (res: ServerResponse): void => {
   res.writeHead(401, JSON_HEADERS);
   res.end(UNAUTHORIZED_ERROR);
+};
+
+export const writeTokenRequired = (res: ServerResponse): void => {
+  res.writeHead(401, JSON_HEADERS);
+  res.end(TOKEN_REQUIRED_ERROR);
 };
 
 /**

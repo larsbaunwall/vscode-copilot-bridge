@@ -18,7 +18,7 @@ Copilot Bridge lets you access your personal Copilot session locally through an 
 - SSE streaming for incremental responses
 - Real-time model discovery via VS Code Language Model API
 - Concurrency and rate limits to keep VS Code responsive
-- Optional bearer token authentication
+- Mandatory bearer token authentication with `HTTP 401 Unauthorized` protection
 - Lightweight Polka-based server integrated directly with the VS Code runtime
 
 ---
@@ -73,35 +73,51 @@ The author collects no data and has no access to user prompts or completions.
 ### Installation
 
 1. Install from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=thinkability.copilot-bridge) or load the `.vsix`.
-2. Launch VS Code and open the **Command Palette** → “Copilot Bridge: Enable”.
-3. Check status anytime with “Copilot Bridge: Status”.
-4. Keep VS Code open — the bridge runs only while the editor is active.
+2. Set **Copilot Bridge › Token** to a secret value (Settings UI or JSON). Requests without this token receive `401 Unauthorized`.
+3. Open the **Command Palette** → “Copilot Bridge: Enable” to start the bridge.
+4. Check status anytime with “Copilot Bridge: Status” or by hovering the status bar item (it links directly to the token setting when missing).
+5. Keep VS Code open — the bridge runs only while the editor is active.
 
 ---
 
 ## 📡 Using the Bridge
 
-Replace `PORT` with the one shown in “Copilot Bridge: Status”.
+Replace `PORT` with the one shown in “Copilot Bridge: Status”. Use the same token value you configured in VS Code:
+
+```bash
+export PORT=12345                 # Replace with the port from the status command
+export BRIDGE_TOKEN="<your-copilot-bridge-token>"
+```
 
 List models:
+
 ```bash
-curl http://127.0.0.1:$PORT/v1/models
+curl -H "Authorization: Bearer $BRIDGE_TOKEN" \
+  http://127.0.0.1:$PORT/v1/models
 ```
 
 Stream a completion:
+
 ```bash
-curl -N -H "Content-Type: application/json" \
+curl -N \
+  -H "Authorization: Bearer $BRIDGE_TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o-copilot","messages":[{"role":"user","content":"hello"}]}' \
   http://127.0.0.1:$PORT/v1/chat/completions
 ```
 
 Use with OpenAI SDK:
+
 ```ts
 import OpenAI from "openai";
 
+if (!process.env.BRIDGE_TOKEN) {
+  throw new Error("Set BRIDGE_TOKEN to the same token configured in VS Code settings (bridge.token).");
+}
+
 const client = new OpenAI({
   baseURL: `http://127.0.0.1:${process.env.PORT}/v1`,
-  apiKey: process.env.BRIDGE_TOKEN || "unused",
+  apiKey: process.env.BRIDGE_TOKEN,
 });
 
 const rsp = await client.chat.completions.create({
@@ -128,12 +144,14 @@ Responses stream back via SSE with concurrency controls for editor stability.
 |----------|----------|-------------|
 | `bridge.enabled` | false | Start automatically with VS Code |
 | `bridge.port` | 0 | Ephemeral port |
-| `bridge.token` | "" | Optional bearer token |
+| `bridge.token` | "" | Bearer token required for every request (leave empty to block API access) |
 | `bridge.historyWindow` | 3 | Retained conversation turns |
 | `bridge.maxConcurrent` | 1 | Max concurrent requests |
 | `bridge.verbose` | false | Enable verbose logging |
 
 > ℹ️ The bridge always binds to `127.0.0.1` and cannot be exposed to other interfaces.
+
+> 💡 Hover the status bar item to confirm the token status; missing tokens show a warning link that opens the relevant setting.
 
 ---
 
@@ -151,14 +169,15 @@ Responses stream back via SSE with concurrency controls for editor stability.
 > Never expose the endpoint to external networks.
 
 - Loopback-only binding (non-configurable)  
-- Optional bearer token enforcement  
+- Mandatory bearer token gating (requests rejected without the correct header)  
 - No persistent storage or telemetry  
 
 ---
 
 ## 🧾 Changelog
 
-- **v1.2.0** – Locked the HTTP server to localhost for improved safety  
+- **v1.2.0** – Authentication token now mandatory; status bar hover warns when missing  
+- **v1.1.1** – Locked the HTTP server to localhost for improved safety  
 - **v1.1.0** – Performance improvements (~30%)  
 - **v1.0.0** – Modular core, OpenAI typings, tool-calling support  
 - **v0.2.2** – Polka integration, improved model family selection  

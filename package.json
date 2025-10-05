@@ -3,7 +3,7 @@
   "icon": "images/icon.png",
   "name": "copilot-bridge",
   "displayName": "Copilot Bridge",
-  "description": "Local OpenAI-compatible chat endpoint (inference) bridging to GitHub Copilot via the VS Code Language Model API.",
+  "description": "Local OpenAI-compatible interface built on the public VS Code Language Model API (vscode.lm).",
   "version": "1.2.0",
   "publisher": "thinkability",
   "repository": {
@@ -18,6 +18,12 @@
   "extensionKind": [
     "ui"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": false
+  },
   "categories": [
     "AI"
   ],
@@ -46,7 +52,7 @@
         "bridge.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Start the Copilot Bridge automatically when VS Code starts."
+          "description": "Start the Copilot Bridge automatically when VS Code starts. Uses only the public `vscode.lm` Language Model API."
         },
         "bridge.port": {
           "type": "number",
@@ -56,18 +62,18 @@
         "bridge.token": {
           "type": "string",
           "default": "",
-          "description": "Optional bearer token required in Authorization header. Leave empty to disable."
+          "description": "Bearer token required in every Authorization header. Leave empty to block access."
         },
         "bridge.historyWindow": {
           "type": "number",
           "default": 3,
-          "minimum": 0,
           "description": "Number of user/assistant turns to include (system message is kept separately)."
         },
         "bridge.maxConcurrent": {
           "type": "number",
           "default": 1,
           "minimum": 1,
+          "maximum": 4,
           "description": "Maximum concurrent /v1/chat/completions requests. Excess requests return 429."
         },
         "bridge.verbose": {

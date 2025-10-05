@@ -6,7 +6,7 @@ import { isAuthorized } from './auth';
 import { handleHealthCheck } from './routes/health';
 import { handleModelsRequest } from './routes/models';
 import { handleChatCompletion } from './routes/chat';
-import { writeErrorResponse, writeNotFound, writeRateLimit, writeUnauthorized } from './utils';
+import { writeErrorResponse, writeNotFound, writeRateLimit, writeTokenRequired, writeUnauthorized } from './utils';
 import { ensureOutput, verbose } from '../log';
 import { updateStatus } from '../status';
 
@@ -36,7 +36,15 @@ export const startServer = async (): Promise<void> => {
     if (path === '/health') {
       return next();
     }
-    if (!isAuthorized(req, config.token)) {
+    const token = getBridgeConfig().token;
+    if (!token) {
+      if (config.verbose) {
+        verbose('401 unauthorized: missing auth token');
+      }
+      writeTokenRequired(res);
+      return;
+    }
+    if (!isAuthorized(req, token)) {
       writeUnauthorized(res);
       return;
     }

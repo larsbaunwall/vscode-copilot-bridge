@@ -3,7 +3,7 @@ import type { AddressInfo } from 'net';
 import { getBridgeConfig } from './config';
 import { state } from './state';
 import { ensureOutput, verbose } from './log';
-import { ensureStatusBar } from './status';
+import { ensureStatusBar, updateStatus } from './status';
 import { startServer, stopServer } from './http/server';
 import { getModel } from './models';
 
@@ -31,8 +31,25 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     const config = getBridgeConfig();
     const hasToken = config.token.length > 0;
     vscode.window.showInformationMessage(
-      `Copilot Bridge: ${state.running ? 'Enabled' : 'Disabled'} | Bound: ${bound} | Token: ${hasToken ? 'Set' : 'None'}`
+      `Copilot Bridge: ${state.running ? 'Enabled' : 'Disabled'} | Bound: ${bound} | Token: ${hasToken ? 'Set (required)' : 'Missing (requests will 401)'}`
     );
+  }));
+
+  ctx.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+    if (!event.affectsConfiguration('bridge.token')) {
+      return;
+    }
+    if (!state.statusBarItem) {
+      return;
+    }
+    const kind: 'start' | 'error' | 'success' | 'disabled' = !state.running
+      ? 'disabled'
+      : state.modelCache
+        ? 'success'
+        : state.modelAttempted
+          ? 'error'
+          : 'start';
+    updateStatus(kind, { suppressLog: true });
   }));
 
   const config = getBridgeConfig();
@@ -52,7 +69,8 @@ async function startBridge(): Promise<void> {
     await startServer();
   } catch (error) {
     state.running = false;
-    state.statusBarItem!.text = 'Copilot Bridge: Error';
+    state.lastReason = 'startup_failed';
+    updateStatus('error', { suppressLog: true });
     if (error instanceof Error) {
       verbose(error.stack || error.message);
     } else {
@@ -70,9 +88,7 @@ async function stopBridge(): Promise<void> {
   } finally {
     state.server = undefined;
     state.modelCache = undefined;
-    if (state.statusBarItem) {
-      state.statusBarItem.text = 'Copilot Bridge: Disabled';
-    }
+    updateStatus('disabled');
     verbose('Stopped');
   }
 }
