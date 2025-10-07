@@ -59,11 +59,18 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
 }
 
 export async function deactivate(): Promise<void> {
+  verbose('Extension deactivating...');
   await stopBridge();
+  // Give time for cleanup before VS Code fully shuts down
+  await new Promise(resolve => setTimeout(resolve, 200));
+  verbose('Extension deactivated');
 }
 
 async function startBridge(): Promise<void> {
-  if (state.running) return;
+  if (state.running) {
+    verbose('Bridge already running, skipping start');
+    return;
+  }
   state.running = true;
   try {
     await startServer();
@@ -71,6 +78,22 @@ async function startBridge(): Promise<void> {
     state.running = false;
     state.lastReason = 'startup_failed';
     updateStatus('error', { suppressLog: true });
+    
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    verbose(`Failed to start bridge: ${errorMsg}`);
+    
+    // Show user-friendly error for common cases
+    if (errorMsg.includes('already in use')) {
+      vscode.window.showErrorMessage(
+        'Copilot Bridge: Port already in use. Try "Copilot Bridge: Disable" first, or check for other processes using the port.',
+        'Show Output'
+      ).then(action => {
+        if (action === 'Show Output') {
+          state.output?.show();
+        }
+      });
+    }
+    
     if (error instanceof Error) {
       verbose(error.stack || error.message);
     } else {
@@ -81,14 +104,26 @@ async function startBridge(): Promise<void> {
 }
 
 async function stopBridge(): Promise<void> {
-  if (!state.running) return;
+  // Always try to stop the server if it exists, regardless of running state
+  const wasRunning = state.running;
   state.running = false;
+  
   try {
-    await stopServer();
+    if (state.server) {
+      verbose('Stopping bridge server...');
+      await stopServer();
+      verbose('Bridge stopped successfully');
+    } else if (wasRunning) {
+      verbose('Bridge marked as running but no server found');
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    verbose(`Error stopping bridge: ${errorMsg}`);
+    vscode.window.showErrorMessage(`Failed to stop bridge: ${errorMsg}`);
   } finally {
+    // Ensure state is fully cleared
     state.server = undefined;
     state.modelCache = undefined;
     updateStatus('disabled');
-    verbose('Stopped');
   }
 }

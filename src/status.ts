@@ -22,7 +22,7 @@ const buildTooltip = (status: string, endpoint: string, tokenConfigured: boolean
   tooltip.appendMarkdown(`Endpoint: \`http://${endpoint}\`\n\n`);
 
   if (tokenConfigured) {
-    tooltip.appendMarkdown('Auth token: ✅ configured. Requests must include `Authorization: Bearer <token>`.');
+    tooltip.appendMarkdown('Auth token: ✅ configured. Requests must include `Authorization: Bearer <token>` (OpenAI) or `x-api-key: <token>` (Anthropic).');
   } else {
     tooltip.appendMarkdown('Auth token: ⚠️ not configured — all API requests return **401 Unauthorized** until you set `bridge.token`.');
     tooltip.appendMarkdown('\n\n[Configure token](command:workbench.action.openSettings?%22bridge.token%22)');

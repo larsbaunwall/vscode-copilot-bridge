@@ -6,9 +6,10 @@ This document gives coding agents (and human maintainers) a clear, opinionated p
 
 ## 1. Project Purpose
 
-Expose GitHub Copilot through a local **OpenAI‑compatible** HTTP bridge inside VS Code. Primary user stories:
+Expose GitHub Copilot through local **OpenAI‑compatible** and **Anthropic‑compatible** HTTP bridges inside VS Code. Primary user stories:
 
-- Run a local `/v1/chat/completions` endpoint that forwards to Copilot via the VS Code Language Model API.
+- Run a local `/v1/chat/completions` endpoint (OpenAI format) that forwards to Copilot via the VS Code Language Model API.
+- Run a local `/v1/messages` endpoint (Anthropic format) that forwards to Copilot via the VS Code Language Model API.
 - List available Copilot model families through `/v1/models`.
 - Basic health & availability via `/health`.
 
@@ -22,12 +23,62 @@ The server is **local only** (loopback host by default) and is not meant for mul
 |-------|-----------|-------|
 | VS Code Extension Activation | `src/extension.ts` | Enables/Disables bridge, manages status command. |
 | HTTP Server (Polka) | `src/http/server.ts` | Routes + middleware + error handling. |
-| Routes | `src/http/routes/*.ts` | `health.ts`, `models.ts`, `chat.ts`. |
+| Routes | `src/http/routes/*.ts` | `health.ts`, `models.ts`, `chat.ts`, `messages.ts`. |
+| **Providers** | `src/providers/*.ts` | **`openai.ts`, `anthropic.ts` - Format-specific request/response handling.** |
 | LM / Copilot Integration | `src/models.ts` | Model selection, status updates. |
-| Message Normalization | `src/messages.ts` | Shapes user/assistant/system to LM API format. |
+| Message Normalization | `src/messages.ts` | Shapes user/assistant/system to LM API format (shared by both providers). |
 | Status & State | `src/status.ts`, `src/state.ts` | In‑memory server + model state, status bar text. |
 | Config & Logging | `src/config.ts`, `src/log.ts` | Reads `bridge.*` settings, output channel. |
 | Utilities | `src/http/utils.ts` | JSON helpers, typed error responses. |
+| **Types** | `src/types/*.ts` | **`openai-types.ts`, `anthropic-types.ts` - API-specific type definitions.** |
+
+### Provider Pattern
+
+The bridge uses a **provider architecture** to support multiple API formats (OpenAI, Anthropic) while sharing the same VS Code LM backend:
+
+```
+HTTP Request → Route Layer → Provider Layer → VS Code LM API
+```
+
+**Route Layer** (`src/http/routes/`):
+- Thin HTTP handlers (read JSON, delegate to provider)
+- Auth and rate limiting handled by server middleware
+- Examples: `chat.ts` → `handleOpenAIRequest()`, `messages.ts` → `handleAnthropicRequest()`
+
+**Provider Layer** (`src/providers/`):
+- Format-specific request normalization and response formatting
+- OpenAI provider (`openai.ts`):
+  - Normalizes OpenAI requests to VS Code `LanguageModelChatMessage[]`
+  - Streams responses using OpenAI SSE format (`data: {...}` + `data: [DONE]`)
+  - Returns `OpenAIResponse` objects
+- Anthropic provider (`anthropic.ts`):
+  - Normalizes Anthropic requests to VS Code `LanguageModelChatMessage[]`
+  - Streams responses using Anthropic SSE format (`event: type\ndata: {...}`)
+  - Returns `AnthropicResponse` objects
+- Both providers:
+  - Use `normalizeMessagesLM()` patterns from `src/messages.ts`
+  - Convert tools to `vscode.LanguageModelChatTool[]`
+  - Share active request tracking via `state.activeRequests`
+  - Use same error handling patterns
+
+**Message Normalization Patterns** (shared across providers):
+- **System prompts**: Injected into first user message with `[SYSTEM]\n<content>` prefix
+- **Tool calls** (assistant → user): `[TOOL_CALL:id] name(json_args)`
+- **Tool results** (user → assistant): `[TOOL_RESULT:id]\n<content>`
+- **History window**: Applied before normalization (configured via `bridge.historyWindow`)
+
+**Adding a New Provider**:
+1. Create `src/types/<provider>-types.ts` with request/response types
+2. Create `src/providers/<provider>.ts` with:
+   - `handle<Provider>Request(body, res)` - Main entry point
+   - Message normalization to `LanguageModelChatMessage[]`
+   - Tool conversion to `LanguageModelChatTool[]`
+   - Streaming function with provider-specific SSE format
+   - Non-streaming collection and response formatting
+3. Create `src/http/routes/<endpoint>.ts` as thin route wrapper
+4. Register route in `src/http/server.ts` with auth middleware
+5. Update README with endpoint documentation and examples
+6. Bump version (MINOR for new endpoint)
 
 ---
 
@@ -41,8 +92,12 @@ The server is **local only** (loopback host by default) and is not meant for mul
 6. **Logging**: Use `verbose()` for debug (guarded by config), `info()` for one‑time start messages, `error()` sparingly (currently not widely used—add only if user‑facing severity).
 7. **Status Bar**: Use `updateStatus(kind)` with kinds: `start | error | success`. Initial pending state relies on `state.modelAttempted`.
 8. **Model Selection**: Always feature-detect the LM API (`hasLMApi`). Return early on missing API with clear `state.lastReason` codes.
-9. **Endpoint Stability**: Public paths (`/health`, `/v1/models`, `/v1/chat/completions`). Changes require README updates and semantic version bump.
-10. **Streaming & Tool Calling**: SSE contract: multiple `data: {chunk}` events + final `data: [DONE]`. Preserve this shape. Tool call chunks must emit `delta.tool_calls` entries encoded as JSON; arguments may arrive as incremental strings, so downstream clients should replace rather than append. The bridge treats `tool_choice: "required"` the same as `"auto"` and ignores `parallel_tool_calls` because the VS Code LM API lacks those controls—communicate this limitation in README and responses if behaviour changes in future.
+9. **Endpoint Stability**: Public paths (`/health`, `/v1/models`, `/v1/chat/completions`, `/v1/messages`). Changes require README updates and semantic version bump.
+10. **Streaming & Tool Calling**:
+    - **OpenAI format**: SSE contract with `data: {chunk}` events + final `data: [DONE]`. Tool call chunks emit `delta.tool_calls` entries.
+    - **Anthropic format**: SSE contract with `event: type\ndata: {...}` events (no `[DONE]` sentinel). Tool calls use `content_block_start` + `content_block_delta` (type: `input_json_delta`) + `content_block_stop`.
+    - The bridge treats `tool_choice: "required"` the same as `"auto"` and ignores `parallel_tool_calls` because the VS Code LM API lacks those controls.
+11. **Authentication**: Support both `Authorization: Bearer <token>` and `x-api-key: <token>` headers. Both validate against the same `bridge.token` setting. Cache both header formats in `src/http/auth.ts` for performance.
 
 ---
 

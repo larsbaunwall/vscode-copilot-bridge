@@ -169,30 +169,25 @@ export const normalizeMessagesLM = (
       result.push(userFactory ? userFactory(text) : { role: 'user', content: text });
     } else if (m.role === 'assistant') {
       // For assistant messages, we need to handle both content and tool calls
-      let text = '';
+      const parts: string[] = [];
       
       if (m.content) {
-        text = toText(m.content);
+        parts.push(toText(m.content));
       }
       
       // If the assistant message has tool calls, format them appropriately
       if (m.tool_calls && m.tool_calls.length > 0) {
-        const toolCallsText = m.tool_calls.map(tc => 
-          `[TOOL_CALL:${tc.id}] ${tc.function.name}(${tc.function.arguments})`
-        ).join('\n');
-        
-        if (text) {
-          text += '\n' + toolCallsText;
-        } else {
-          text = toolCallsText;
+        for (const tc of m.tool_calls) {
+          parts.push(`[TOOL_CALL:${tc.id}] ${tc.function.name}(${tc.function.arguments})`);
         }
       }
       
       // Handle deprecated function_call format
-      if (!text && m.function_call) {
-        text = `[FUNCTION_CALL] ${m.function_call.name}(${m.function_call.arguments})`;
+      if (parts.length === 0 && m.function_call) {
+        parts.push(`[FUNCTION_CALL] ${m.function_call.name}(${m.function_call.arguments})`);
       }
       
+      const text = parts.join('\n');
       result.push(assistantFactory ? assistantFactory(text) : { role: 'assistant', content: text });
     } else if (m.role === 'tool') {
       // Tool messages should be converted to user messages with tool result context

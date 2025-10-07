@@ -3,7 +3,59 @@
 # Copilot Bridge (VS Code Extension)
 
 [![Visual Studio Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/thinkability.copilot-bridge)](https://marketplace.visualstudio.com/items?itemName=thinkability.copilot-bridge)
-[![Visual Studio Marketplace Installs](https://img.shields.io/visual-studio-marketplace/d/thinkability.copilot-bridge?label=installs)](https://marketplace.visualstudio.com/items?itemName=thinkability.copilot-bridge)
+[![Visual Studio Marketplace Installs](https://img.s## 🧩 Architecture
+
+The extension uses VS Code's built-in Language Model API to select available Copilot chat models.  
+Requests are normalized and sent through VS Code itself, never directly to GitHub Copilot servers.  
+Responses stream back via SSE with concurrency controls for editor stability.
+
+### Provider Architecture
+
+Copilot Bridge uses a **provider pattern** to support multiple API formats while sharing the same VS Code LM backend:
+
+```
+┌─────────────────────────────────────────────────┐
+│          HTTP Request (localhost:port)           │
+└────────────┬─────────────────────┬───────────────┘
+             │                     │
+    ┌────────▼─────────┐  ┌───────▼──────────┐
+    │  /v1/chat/       │  │  /v1/messages    │
+    │  completions     │  │  (Anthropic)     │
+    └────────┬─────────┘  └───────┬──────────┘
+             │                     │
+    ┌────────▼─────────┐  ┌───────▼──────────┐
+    │  OpenAI Provider │  │ Anthropic Provider│
+    │  (openai.ts)     │  │ (anthropic.ts)   │
+    └────────┬─────────┘  └───────┬──────────┘
+             │                     │
+             │  Normalize messages │
+             │  Convert tools      │
+             └──────────┬──────────┘
+                        │
+           ┌────────────▼────────────────┐
+           │  VS Code Language Model API │
+           │  (vscode.lm)                │
+           └────────────┬────────────────┘
+                        │
+           ┌────────────▼────────────────┐
+           │  GitHub Copilot             │
+           └─────────────────────────────┘
+```
+
+**Key components:**
+- **Route layer** (`src/http/routes/`) - Thin HTTP handlers, auth/rate limiting
+- **Provider layer** (`src/providers/`) - Format-specific request/response handling
+- **Message normalization** (`src/messages.ts`) - Shared message conversion logic
+- **VS Code LM integration** (`src/models.ts`) - Model selection and availability
+
+Both providers:
+- Use the same token configuration and dual auth header support
+- Share the same VS Code Language Model backend
+- Normalize messages to VS Code format with `[SYSTEM]`, `[TOOL_CALL:id]`, `[TOOL_RESULT:id]` prefixes
+- Apply the same concurrency limits and error handling
+
+
+### How it calls models (pseudocode)o/visual-studio-marketplace/d/thinkability.copilot-bridge?label=installs)](https://marketplace.visualstudio.com/items?itemName=thinkability.copilot-bridge)
 
 > **A local interface for GitHub Copilot built on the official VS Code Language Models API.**
 
@@ -15,11 +67,14 @@ Copilot Bridge lets you access your personal Copilot session locally through an 
 ## ✨ Key Features
 
 - Local HTTP server locked to `127.0.0.1`
-- OpenAI-style `/v1/chat/completions`, `/v1/models`, and `/health` endpoints
-- SSE streaming for incremental responses
+- **OpenAI-compatible** `/v1/chat/completions` endpoint with SSE streaming
+- **Anthropic-compatible** `/v1/messages` endpoint with Anthropic SSE format
+- **Dual authentication**: supports both `Authorization: Bearer` (OpenAI) and `x-api-key` (Anthropic) headers
+- `/v1/models` and `/health` endpoints for discovery and monitoring
 - Real-time model discovery via VS Code Language Model API
+- Tool calling support for both OpenAI and Anthropic formats
 - Concurrency and rate limits to keep VS Code responsive
-- Mandatory bearer token authentication with `HTTP 401 Unauthorized` protection
+- Mandatory token authentication with `HTTP 401 Unauthorized` protection
 - Lightweight Polka-based server integrated directly with the VS Code runtime
 
 ---
@@ -129,6 +184,203 @@ const rsp = await client.chat.completions.create({
 console.log(rsp.choices[0].message?.content);
 ```
 
+### Using the Anthropic Messages API
+
+The bridge also supports the Anthropic Messages API format at `/v1/messages`:
+
+```bash
+# Anthropic-style with x-api-key header
+curl -N \
+  -H "x-api-key: $BRIDGE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model":"gpt-4o-copilot",
+    "max_tokens":1024,
+    "messages":[{"role":"user","content":"hello"}]
+  }' \
+  http://127.0.0.1:$PORT/v1/messages
+```
+
+Use with Anthropic SDK:
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+
+if (!process.env.BRIDGE_TOKEN) {
+  throw new Error("Set BRIDGE_TOKEN to the same token configured in VS Code settings (bridge.token).");
+}
+
+const client = new Anthropic({
+  baseURL: `http://127.0.0.1:${process.env.PORT}`,
+  apiKey: process.env.BRIDGE_TOKEN,
+});
+
+const rsp = await client.messages.create({
+  model: "claude-3-5-sonnet-20241022", // Model name is passed through
+  max_tokens: 1024,
+  messages: [{ role: "user", content: "hello" }],
+});
+
+console.log(rsp.content[0].text);
+```
+
+> **Note**: Both authentication header formats work with both endpoints:
+> - `/v1/chat/completions` accepts `Authorization: Bearer` **or** `x-api-key`
+> - `/v1/messages` accepts `Authorization: Bearer` **or** `x-api-key`
+
+---
+
+## 🎯 API Endpoints
+
+### `GET /health`
+Returns bridge status and availability.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "uptime": 1234.56,
+  "reason": "success"
+}
+```
+
+**Reason codes:**
+- `success` - Bridge operational
+- `copilot_model_unavailable` - No Copilot models available
+- `missing_language_model_api` - VS Code LM API not available
+
+### `GET /v1/models`
+Lists available models from VS Code Language Model API.
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "copilot-gpt-4o",
+      "object": "model",
+      "created": 1234567890,
+      "owned_by": "copilot"
+    }
+  ]
+}
+```
+
+### `POST /v1/chat/completions`
+OpenAI-compatible chat completions endpoint.
+
+**Request:**
+```json
+{
+  "model": "gpt-4o-copilot",
+  "messages": [
+    {"role": "system", "content": "You are helpful."},
+    {"role": "user", "content": "Hello!"}
+  ],
+  "stream": true,
+  "temperature": 0.7,
+  "tools": [...]
+}
+```
+
+**Streaming Response (SSE):**
+```
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk",...}
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk",...}
+data: [DONE]
+```
+
+**Supported parameters:**
+- `model` - Model identifier (passed through to VS Code LM)
+- `messages` - Conversation history (system, user, assistant, tool)
+- `stream` - Enable SSE streaming (default: false)
+- `tools` - Tool definitions for function calling
+- `tool_choice` - Tool selection strategy (none/auto/required/specific)
+- `temperature`, `top_p` - Sampling parameters (best-effort)
+- Deprecated: `functions`, `function_call` (converted to tools)
+
+**Limitations:**
+- `max_tokens` is advisory only (VS Code LM controls actual length)
+- `n` (multiple choices) not supported
+- `logprobs`, `logit_bias` not supported
+- Usage tokens always return 0 (VS Code LM doesn't expose counts)
+
+### `POST /v1/messages`
+Anthropic-compatible messages endpoint.
+
+**Request:**
+```json
+{
+  "model": "claude-3-5-sonnet-20241022",
+  "max_tokens": 1024,
+  "messages": [
+    {"role": "user", "content": "Hello!"}
+  ],
+  "system": "You are helpful.",
+  "stream": true,
+  "tools": [...]
+}
+```
+
+**Streaming Response (Anthropic SSE format):**
+```
+event: message_start
+data: {"type":"message_start","message":{...}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{...}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{...}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},...}
+
+event: message_stop
+data: {"type":"message_stop"}
+```
+
+**Supported parameters:**
+- `model` - Model identifier (required)
+- `max_tokens` - Maximum tokens to generate (**required**)
+- `messages` - Array of user/assistant messages
+- `system` - System prompt (string or content blocks)
+- `stream` - Enable SSE streaming (default: false)
+- `tools` - Tool definitions
+- `tool_choice` - Tool selection (auto/any/tool/none)
+- `temperature`, `top_p`, `top_k` - Sampling parameters (best-effort)
+
+**Limitations:**
+- `max_tokens` is required but advisory (VS Code LM controls length)
+- Content blocks support: text, tool_use, tool_result (no images)
+- Thinking blocks not supported (VS Code LM doesn't expose reasoning)
+- Usage tokens always return 0
+- Stop sequences advisory only
+
+---
+
+## 📊 Feature Compatibility Matrix
+
+| Feature | OpenAI `/v1/chat/completions` | Anthropic `/v1/messages` | Notes |
+|---------|------------------------------|--------------------------|-------|
+| **Authentication** | ✅ `Authorization: Bearer` | ✅ `x-api-key` | Both endpoints accept both headers |
+| **Streaming** | ✅ SSE (OpenAI format) | ✅ SSE (Anthropic format) | Different event structures |
+| **Tool Calling** | ✅ `tools` + `tool_calls` | ✅ `tools` + `tool_use` blocks | Both map to VS Code LM tools |
+| **System Prompts** | ✅ Message with `role: system` | ✅ `system` field | Both inject via `[SYSTEM]` prefix |
+| **Content Blocks** | ⚠️ Text only | ⚠️ Text + tool blocks only | No image/file support (VS Code LM limit) |
+| **Thinking/Reasoning** | ❌ Not supported | ❌ Not supported | VS Code LM doesn't expose |
+| **Temperature** | ✅ Best-effort | ✅ Best-effort | Passed to VS Code LM |
+| **Max Tokens** | ⚠️ Advisory | ⚠️ Advisory (required param) | VS Code LM controls actual length |
+| **Usage Tokens** | ⚠️ Always 0 | ⚠️ Always 0 | VS Code LM doesn't report counts |
+| **Multiple Choices (n)** | ❌ | ❌ | VS Code LM single response only |
+| **Logprobs** | ❌ | N/A | Not available from VS Code LM |
+
+
+
 ---
 
 ## 🧩 Architecture
@@ -198,6 +450,7 @@ const stream = await model.sendRequest(
 
 ## 🧾 Changelog
 
+- **v1.3.0** – Added Anthropic Messages API support (`/v1/messages`), dual auth headers (`Authorization` + `x-api-key`), provider architecture refactor
 - **v1.2.0** – Authentication token now mandatory; status bar hover warns when missing  
 - **v1.1.1** – Locked the HTTP server to localhost for improved safety  
 - **v1.1.0** – Performance improvements (~30%)  

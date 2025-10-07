@@ -3,8 +3,8 @@
   "icon": "images/icon.png",
   "name": "copilot-bridge",
   "displayName": "Copilot Bridge",
-  "description": "Local OpenAI-compatible interface built on the public VS Code Language Model API (vscode.lm).",
-  "version": "1.2.0",
+  "description": "Local OpenAI & Anthropic compatible interface built on the public VS Code Language Model API (vscode.lm).",
+  "version": "1.3.0",
   "publisher": "thinkability",
   "repository": {
     "type": "git",

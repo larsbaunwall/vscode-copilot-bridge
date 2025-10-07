@@ -12,7 +12,27 @@ export interface BridgeConfig {
   readonly maxConcurrent: number;
 }
 
+// Cache config to avoid repeated VS Code configuration queries (PERFORMANCE FIX)
+let cachedConfig: BridgeConfig | undefined;
+let configListener: vscode.Disposable | undefined;
+
 export const getBridgeConfig = (): BridgeConfig => {
+  if (cachedConfig === undefined) {
+    cachedConfig = readConfig();
+    
+    // Set up listener for config changes
+    if (!configListener) {
+      configListener = vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration('bridge')) {
+          cachedConfig = undefined; // Invalidate cache
+        }
+      });
+    }
+  }
+  return cachedConfig;
+};
+
+function readConfig(): BridgeConfig {
   const cfg = vscode.workspace.getConfiguration('bridge');
   const resolved = {
     enabled: cfg.get('enabled', false),
@@ -24,4 +44,12 @@ export const getBridgeConfig = (): BridgeConfig => {
     maxConcurrent: cfg.get('maxConcurrent', 1),
   } satisfies BridgeConfig;
   return resolved;
+}
+
+/**
+ * Invalidates the config cache, forcing a reload on next access.
+ * Useful for testing or when config is known to have changed.
+ */
+export const invalidateConfigCache = (): void => {
+  cachedConfig = undefined;
 };

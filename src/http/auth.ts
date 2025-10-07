@@ -1,25 +1,41 @@
 import type { IncomingMessage } from 'http';
 
-// Cache the authorization header to avoid repeated concatenation
+// Cache both authorization header formats to avoid repeated concatenation
 let cachedToken = '';
-let cachedAuthHeader = '';
+let cachedBearerHeader = '';
+let cachedApiKey = '';
 
 /**
  * Checks if the request is authorized against the configured token.
- * Caches the full "Bearer <token>" header to optimize hot path.
+ * Supports both OpenAI (Authorization: Bearer <token>) and 
+ * Anthropic (x-api-key: <token>) authentication header formats.
+ * Both headers validate against the same configured token.
+ * Caches both header formats to optimize hot path.
  */
 export const isAuthorized = (req: IncomingMessage, token: string): boolean => {
   if (!token) {
     cachedToken = '';
-    cachedAuthHeader = '';
+    cachedBearerHeader = '';
+    cachedApiKey = '';
     return false;
   }
 
   // Update cache if token changed
   if (token !== cachedToken) {
     cachedToken = token;
-    cachedAuthHeader = `Bearer ${token}`;
+    cachedBearerHeader = `Bearer ${token}`;
+    cachedApiKey = token;
   }
   
-  return req.headers.authorization === cachedAuthHeader;
+  // Check OpenAI-style Authorization: Bearer <token>
+  if (req.headers.authorization === cachedBearerHeader) {
+    return true;
+  }
+
+  // Check Anthropic-style x-api-key: <token>
+  if (req.headers['x-api-key'] === cachedApiKey) {
+    return true;
+  }
+
+  return false;
 };
